@@ -1,4 +1,5 @@
 ---
+name: email-brief
 description: Use this skill when the user asks to "generate email brief", "email summary", "summarize my emails", "what emails did I get", "daily brief", "email digest", or wants a summary of recent emails.
 ---
 
