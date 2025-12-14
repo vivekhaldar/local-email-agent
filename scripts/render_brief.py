@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ABOUTME: Render classified emails to HTML using Jinja2 template
+# ABOUTME: Render classified emails/threads to HTML using Jinja2 template
 # ABOUTME: Usage: uv run scripts/render_brief.py --input classified.json --output brief.html
 
 import argparse
@@ -34,8 +34,8 @@ def format_date_short(date_str: str) -> str:
         return date_str[:16] if date_str else ""
 
 
-def organize_by_category(emails: list[dict]) -> list[dict]:
-    """Organize emails into sections by category."""
+def organize_by_category(items: list[dict]) -> list[dict]:
+    """Organize items (threads and single emails) into sections by category."""
     sections = {
         "URGENT": {
             "name": "Urgent",
@@ -81,41 +81,78 @@ def organize_by_category(emails: list[dict]) -> list[dict]:
         }
     }
 
-    for email in emails:
-        category = email.get("category", "FYI").upper()
+    for item in items:
+        category = item.get("category", "FYI").upper()
         if category in sections:
-            sections[category]["emails"].append(email)
+            sections[category]["emails"].append(item)
         else:
-            sections["FYI"]["emails"].append(email)
+            sections["FYI"]["emails"].append(item)
 
     # Return as list, ordered
     order = ["URGENT", "NEEDS_RESPONSE", "CALENDAR", "FINANCIAL", "FYI", "AUTOMATED", "NEWSLETTER"]
     return [sections[cat] for cat in order]
 
 
-def render_brief(classified_emails: list[dict], since: str, output_path: Path) -> None:
-    """Render the brief HTML from classified emails."""
+def prepare_item_for_template(item: dict) -> dict:
+    """Prepare an item (thread or single email) for template rendering."""
+    is_thread = item.get("is_thread", False)
+    messages = item.get("messages", [])
+
+    if not messages:
+        return item
+
+    # Format dates for all messages
+    for msg in messages:
+        msg["date_short"] = format_date_short(msg.get("date", ""))
+
+    if is_thread:
+        # Thread: use thread-level data
+        item["display_name"] = ", ".join(item.get("participants", [])[:3])
+        if len(item.get("participants", [])) > 3:
+            item["display_name"] += f" +{len(item['participants']) - 3}"
+        item["display_subject"] = item.get("subject", messages[0].get("subject", ""))
+        item["date_short"] = format_date_short(item.get("last_date", messages[-1].get("date", "")))
+        item["message_count"] = len(messages)
+        # Gmail link from the item (set by group_threads) or most recent message
+        if not item.get("gmail_link"):
+            item["gmail_link"] = messages[-1].get("gmail_link", "")
+    else:
+        # Single email: use the message data
+        email = messages[0]
+        item["display_name"] = email.get("from_name", "Unknown")
+        item["display_subject"] = email.get("subject", "")
+        item["date_short"] = format_date_short(email.get("date", ""))
+        item["message_count"] = 1
+        item["gmail_link"] = email.get("gmail_link", "")
+
+    return item
+
+
+def render_brief(classified_items: list[dict], since: str, output_path: Path) -> None:
+    """Render the brief HTML from classified items."""
     # Set up Jinja2
     env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
     template = env.get_template("brief.html")
 
-    # Add short date to each email
-    for email in classified_emails:
-        email["date_short"] = format_date_short(email.get("date", ""))
+    # Prepare each item for template
+    for item in classified_items:
+        prepare_item_for_template(item)
 
     # Organize into sections
-    sections = organize_by_category(classified_emails)
+    sections = organize_by_category(classified_items)
 
     # Count stats
-    total_count = len(classified_emails)
-    urgent_count = len([e for e in classified_emails if e.get("category", "").upper() == "URGENT"])
-    needs_response_count = len([e for e in classified_emails if e.get("category", "").upper() == "NEEDS_RESPONSE"])
+    total_count = len(classified_items)
+    urgent_count = len([i for i in classified_items if i.get("category", "").upper() == "URGENT"])
+    needs_response_count = len([i for i in classified_items if i.get("category", "").upper() == "NEEDS_RESPONSE"])
+    thread_count = len([i for i in classified_items if i.get("is_thread")])
 
     # Render
     html = template.render(
         date=datetime.now().strftime("%A, %B %d, %Y"),
         since=since,
         total_count=total_count,
+        thread_count=thread_count,
         urgent_count=urgent_count,
         needs_response_count=needs_response_count,
         sections=sections,
@@ -135,7 +172,7 @@ def main():
     parser.add_argument(
         "--input",
         required=True,
-        help="Input JSON file with classified emails"
+        help="Input JSON file with classified items"
     )
     parser.add_argument(
         "--output",
@@ -157,11 +194,11 @@ def main():
     with open(input_path) as f:
         data = json.load(f)
 
-    # Handle both formats: list of emails or {"emails": [...]}
+    # Handle both formats: list or {"items": [...]}
     if isinstance(data, list):
-        classified_emails = data
+        classified_items = data
     else:
-        classified_emails = data.get("emails", [])
+        classified_items = data.get("items", data.get("emails", []))
 
     # Determine output path
     if args.output:
@@ -170,7 +207,7 @@ def main():
         output_path = BRIEFS_DIR / f"{datetime.now().strftime('%Y-%m-%d')}.html"
 
     # Render
-    render_brief(classified_emails, args.since, output_path)
+    render_brief(classified_items, args.since, output_path)
 
 
 if __name__ == "__main__":

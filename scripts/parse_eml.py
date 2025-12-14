@@ -136,6 +136,20 @@ def parse_eml(filepath: Path) -> dict:
     date = msg.get("Date", "")
     to = decode_mime_header(msg.get("To", ""))
 
+    # Extract thread headers for threading support
+    message_id = msg.get("Message-ID", "")
+    if message_id:
+        message_id = message_id.strip().strip("<>")
+
+    in_reply_to = msg.get("In-Reply-To", "")
+    if in_reply_to:
+        in_reply_to = in_reply_to.strip().strip("<>")
+
+    references = msg.get("References", "")
+    if references:
+        # References is a space/newline-separated list of Message-IDs
+        references = " ".join(references.split())
+
     body_text = get_body_text(msg)
     body_preview = body_text[:MAX_BODY_PREVIEW]
     if len(body_text) > MAX_BODY_PREVIEW:
@@ -148,6 +162,9 @@ def parse_eml(filepath: Path) -> dict:
         "to": to,
         "subject": subject,
         "date": date,
+        "message_id": message_id,
+        "in_reply_to": in_reply_to,
+        "references": references,
         "body_preview": body_preview,
         "body_length": len(body_text)
     }

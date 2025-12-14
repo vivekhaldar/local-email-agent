@@ -30,6 +30,8 @@
       --accent-fyi-bg: #EFF6FF;
       --accent-newsletter: #6B7280;
       --accent-automated: #9CA3AF;
+      --accent-thread: #6366F1;
+      --accent-thread-bg: #EEF2FF;
 
       --font-display: 'Fraunces', Georgia, serif;
       --font-body: 'DM Sans', -apple-system, sans-serif;
@@ -125,6 +127,7 @@
 
     .stat--urgent .stat-value { color: var(--accent-urgent); }
     .stat--response .stat-value { color: var(--accent-response); }
+    .stat--thread .stat-value { color: var(--accent-thread); }
 
     /* Sections */
     .section {
@@ -205,7 +208,7 @@
     .section--financial .section-title { color: var(--accent-financial); }
     .section--fyi .section-title { color: var(--accent-fyi); }
 
-    /* Email cards */
+    /* Email/Thread cards */
     .email-list {
       display: flex;
       flex-direction: column;
@@ -222,6 +225,10 @@
 
     .email-toggle[open] {
       border-color: var(--border);
+    }
+
+    .email-toggle.is-thread {
+      border-left: 3px solid var(--accent-thread);
     }
 
     .email-toggle summary {
@@ -269,6 +276,19 @@
       color: var(--text-primary);
       white-space: nowrap;
       flex-shrink: 0;
+    }
+
+    .thread-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--accent-thread);
+      background: var(--accent-thread-bg);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      white-space: nowrap;
     }
 
     .email-subject-preview {
@@ -340,6 +360,47 @@
     .email-action::before {
       content: "→";
       font-weight: 600;
+    }
+
+    /* Thread messages list */
+    .thread-messages {
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px dashed var(--border);
+    }
+
+    .thread-messages-header {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .thread-message {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      padding: 0.4rem 0;
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .thread-message:last-child {
+      border-bottom: none;
+    }
+
+    .thread-message-from {
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    .thread-message-date {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      white-space: nowrap;
     }
 
     /* Footer */
@@ -415,8 +476,14 @@
       <div class="stats-bar">
         <div class="stat">
           <span class="stat-value">{{ total_count }}</span>
-          <span class="stat-label">emails</span>
+          <span class="stat-label">items</span>
         </div>
+        {% if thread_count > 0 %}
+        <div class="stat stat--thread">
+          <span class="stat-value">{{ thread_count }}</span>
+          <span class="stat-label">threads</span>
+        </div>
+        {% endif %}
         {% if urgent_count > 0 %}
         <div class="stat stat--urgent">
           <span class="stat-value">{{ urgent_count }}</span>
@@ -446,27 +513,41 @@
         </summary>
         <div class="section-content">
           <div class="email-list">
-            {% for email in section.emails %}
-            <details class="email-toggle">
+            {% for item in section.emails %}
+            <details class="email-toggle {% if item.is_thread %}is-thread{% endif %}">
               <summary>
                 <span class="email-indicator"></span>
                 <div class="email-preview">
-                  <span class="email-sender">{{ email.from_name }}</span>
-                  <span class="email-subject-preview">{{ email.subject }}</span>
+                  <span class="email-sender">{{ item.display_name }}</span>
+                  {% if item.is_thread %}
+                  <span class="thread-badge">{{ item.message_count }} msgs</span>
+                  {% endif %}
+                  <span class="email-subject-preview">{{ item.display_subject }}</span>
                 </div>
-                <span class="email-time">{{ email.date_short }}</span>
+                <span class="email-time">{{ item.date_short }}</span>
                 <svg class="email-expand" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
                 </svg>
               </summary>
               <div class="email-content">
-                {% if email.summary %}
-                <p class="email-summary">{{ email.summary }}</p>
+                {% if item.summary %}
+                <p class="email-summary">{{ item.summary }}</p>
                 {% endif %}
-                {% if email.action_items %}
-                <div class="email-action">{{ email.action_items }}</div>
+                {% if item.action_items %}
+                <div class="email-action">{{ item.action_items }}</div>
                 {% endif %}
-                <a class="email-link" href="{{ email.gmail_link }}" target="_blank">Open in Gmail →</a>
+                {% if item.is_thread and item.messages %}
+                <div class="thread-messages">
+                  <p class="thread-messages-header">Messages in thread</p>
+                  {% for msg in item.messages %}
+                  <div class="thread-message">
+                    <span class="thread-message-from">{{ msg.from_name }}</span>
+                    <span class="thread-message-date">{{ msg.date_short }}</span>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                <a class="email-link" href="{{ item.gmail_link }}" target="_blank">Open in Gmail →</a>
               </div>
             </details>
             {% endfor %}
