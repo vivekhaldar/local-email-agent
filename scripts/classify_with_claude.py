@@ -171,43 +171,54 @@ Respond with ONLY this JSON (no markdown, no explanation):
     return _call_claude(prompt, subject, participants[0] if participants else "Unknown")
 
 
-def _call_claude(prompt: str, subject: str, fallback_name: str) -> dict:
-    """Call Claude Agent SDK with the given prompt and return parsed result."""
-    try:
-        response_text, cost = query_claude_sync(prompt, timeout_seconds=90)
-        parsed = parse_json_response(response_text)
+def _call_claude(prompt: str, subject: str, fallback_name: str, max_retries: int = 2) -> dict:
+    """Call Claude Agent SDK with the given prompt and return parsed result.
 
-        return {
-            "category": parsed.get("category", "FYI").upper(),
-            "summary": parsed.get("summary", f"{fallback_name}: {subject}"),
-            "action_items": parsed.get("action_items"),
-            "cost_usd": cost
-        }
+    Retries on transient failures (empty responses, parse errors) up to max_retries times.
+    """
+    last_error = None
+    total_cost = 0.0
 
-    except TimeoutError:
-        print(f"  Warning: timeout for '{subject[:40]}...'", file=sys.stderr)
-        return {
-            "category": "FYI",
-            "summary": f"{fallback_name}: {subject}",
-            "action_items": None,
-            "cost_usd": 0.0
-        }
-    except ValueError as e:
-        print(f"  Warning: JSON parse error for '{subject[:40]}...': {e}", file=sys.stderr)
-        return {
-            "category": "FYI",
-            "summary": f"{fallback_name}: {subject}",
-            "action_items": None,
-            "cost_usd": 0.0
-        }
-    except ClaudeQueryError as e:
-        print(f"  Warning: Claude error for '{subject[:40]}...': {e}", file=sys.stderr)
-        return {
-            "category": "FYI",
-            "summary": f"{fallback_name}: {subject}",
-            "action_items": None,
-            "cost_usd": 0.0
-        }
+    for attempt in range(max_retries):
+        try:
+            response_text, cost = query_claude_sync(prompt, timeout_seconds=90)
+            total_cost += cost
+            parsed = parse_json_response(response_text)
+
+            return {
+                "category": parsed.get("category", "FYI").upper(),
+                "summary": parsed.get("summary", f"{fallback_name}: {subject}"),
+                "action_items": parsed.get("action_items"),
+                "cost_usd": total_cost
+            }
+
+        except TimeoutError:
+            print(f"  Warning: timeout for '{subject[:40]}...'", file=sys.stderr)
+            return {
+                "category": "FYI",
+                "summary": f"{fallback_name}: {subject}",
+                "action_items": None,
+                "cost_usd": total_cost
+            }
+        except ValueError as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                print(f"  Retry {attempt + 1}/{max_retries - 1} for '{subject[:30]}...' ({e})", file=sys.stderr)
+                continue
+        except ClaudeQueryError as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                print(f"  Retry {attempt + 1}/{max_retries - 1} for '{subject[:30]}...' ({e})", file=sys.stderr)
+                continue
+
+    # All retries exhausted
+    print(f"  Warning: failed after {max_retries} attempts for '{subject[:40]}...': {last_error}", file=sys.stderr)
+    return {
+        "category": "FYI",
+        "summary": f"{fallback_name}: {subject}",
+        "action_items": None,
+        "cost_usd": total_cost
+    }
 
 
 def main():

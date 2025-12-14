@@ -107,11 +107,15 @@ def parse_json_response(response_text: str) -> dict[str, Any]:
         Parsed JSON as dictionary
 
     Raises:
-        ValueError: If JSON parsing fails
+        ValueError: If JSON parsing fails or response is empty
     """
     import json
 
     text = response_text.strip()
+
+    # Handle empty responses
+    if not text:
+        raise ValueError("Empty response from Claude")
 
     # Handle markdown code blocks
     if "```json" in text:
@@ -120,6 +124,10 @@ def parse_json_response(response_text: str) -> dict[str, Any]:
         text = text.split("```")[1].split("```")[0]
 
     text = text.strip()
+
+    # Check again after stripping code blocks
+    if not text:
+        raise ValueError("Empty JSON content in response")
 
     try:
         return json.loads(text)

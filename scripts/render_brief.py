@@ -164,7 +164,9 @@ def render_brief(classified_items: list[dict], since: str, output_path: Path) ->
 
     # Write output
     output_path.write_text(html)
-    print(f"Brief written to: {output_path}")
+    # Print path to stdout (for shell capture) and message to stderr (for display)
+    print(output_path)
+    print(f"Brief written to: {output_path}", file=sys.stderr)
 
 
 def main():
