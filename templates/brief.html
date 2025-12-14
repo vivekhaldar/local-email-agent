@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email Brief - {{ date }}</title>
+  <style>
+    /* Reset and base */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.6;
+      color: #1a1a1a;
+      background: #f8f9fa;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Container */
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    /* Header */
+    header {
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem 0;
+      color: #1a1a1a;
+    }
+
+    .meta {
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .stats {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .stat-value {
+      font-weight: 600;
+      font-size: 1.25rem;
+    }
+
+    .stat-label {
+      font-size: 0.85rem;
+      color: #666;
+    }
+
+    /* Sections */
+    .section {
+      margin-bottom: 2.5rem;
+    }
+
+    .section-header {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #333;
+      margin: 0 0 1rem 0;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .section-count {
+      font-size: 0.85rem;
+      font-weight: normal;
+      color: #666;
+    }
+
+    /* Email cards */
+    .email-card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      border-left: 4px solid #ccc;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .email-card.urgent {
+      border-left-color: #dc3545;
+      background: #fff8f8;
+    }
+
+    .email-card.needs-response {
+      border-left-color: #ffc107;
+      background: #fffef8;
+    }
+
+    .email-card.fyi {
+      border-left-color: #0d6efd;
+    }
+
+    .email-card.newsletter {
+      border-left-color: #6c757d;
+      background: #fafafa;
+    }
+
+    .email-card.automated {
+      border-left-color: #6c757d;
+      background: #fafafa;
+    }
+
+    .email-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 0.5rem;
+      gap: 1rem;
+    }
+
+    .sender {
+      font-weight: 500;
+      color: #333;
+    }
+
+    .date {
+      font-size: 0.8rem;
+      color: #888;
+      white-space: nowrap;
+    }
+
+    .subject {
+      margin-bottom: 0.5rem;
+    }
+
+    .subject a {
+      color: #1a1a1a;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .subject a:hover {
+      color: #0d6efd;
+      text-decoration: underline;
+    }
+
+    .summary {
+      font-size: 0.95rem;
+      color: #444;
+      margin-bottom: 0.5rem;
+    }
+
+    .action-items {
+      font-size: 0.9rem;
+      color: #dc3545;
+      font-weight: 500;
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background: #fff0f0;
+      border-radius: 4px;
+    }
+
+    .action-items::before {
+      content: "⚡ ";
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e0e0e0;
+      font-size: 0.85rem;
+      color: #888;
+      text-align: center;
+    }
+
+    /* Print styles */
+    @media print {
+      body { background: #fff; }
+      .container { padding: 1rem; }
+      .email-card { box-shadow: none; border: 1px solid #ddd; }
+    }
+
+    /* Mobile */
+    @media (max-width: 600px) {
+      .container { padding: 1rem; }
+      h1 { font-size: 1.5rem; }
+      .stats { gap: 1rem; }
+      .email-header { flex-direction: column; gap: 0.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📬 Email Brief</h1>
+      <p class="meta">{{ date }} · Since {{ since }}</p>
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-value">{{ total_count }}</span>
+          <span class="stat-label">emails</span>
+        </div>
+        {% if urgent_count > 0 %}
+        <div class="stat">
+          <span class="stat-value" style="color: #dc3545;">{{ urgent_count }}</span>
+          <span class="stat-label">urgent</span>
+        </div>
+        {% endif %}
+        {% if needs_response_count > 0 %}
+        <div class="stat">
+          <span class="stat-value" style="color: #ffc107;">{{ needs_response_count }}</span>
+          <span class="stat-label">need response</span>
+        </div>
+        {% endif %}
+      </div>
+    </header>
+
+    {% for section in sections %}
+    {% if section.emails %}
+    <div class="section">
+      <h2 class="section-header">
+        {{ section.icon }} {{ section.name }}
+        <span class="section-count">({{ section.emails | length }})</span>
+      </h2>
+      {% for email in section.emails %}
+      <div class="email-card {{ section.css_class }}">
+        <div class="email-header">
+          <span class="sender">{{ email.from_name }}</span>
+          <span class="date">{{ email.date_short }}</span>
+        </div>
+        <div class="subject">
+          <a href="{{ email.gmail_link }}" target="_blank">{{ email.subject }}</a>
+        </div>
+        {% if email.summary %}
+        <div class="summary">{{ email.summary }}</div>
+        {% endif %}
+        {% if email.action_items %}
+        <div class="action-items">{{ email.action_items }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <footer>
+      Generated by local-email-agent · {{ generated_at }}
+    </footer>
+  </div>
+</body>
+</html>

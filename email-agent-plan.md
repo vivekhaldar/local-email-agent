@@ -1,5 +1,28 @@
 # Email Agent Capabilities - Brainstorm
 
+## Implementation Progress
+
+### 2025-12-13: Email Brief Implementation
+
+**Completed:**
+- [x] `scripts/fetch_emails.py` - Queries SQLite for recent emails, outputs JSON with Gmail links
+- [x] `scripts/parse_eml.py` - Parses EML files, extracts headers and body text
+- [x] `scripts/render_brief.py` - Renders classified emails to HTML using Jinja2 template
+- [x] `templates/brief.html` - Responsive HTML template with category sections
+- [x] `.claude/commands/email-brief.md` - Project-local slash command for Claude
+- [x] `generate-brief.sh` - Entry point script with `--since` argument
+- [x] `pyproject.toml` - Python project with jinja2 dependency
+
+**Usage:**
+```bash
+cd ~/MAIL
+./generate-brief.sh                # Last 24 hours
+./generate-brief.sh --since 2d     # Last 2 days
+./generate-brief.sh --since 1w     # Last week
+```
+
+---
+
 ## What We Have to Work With
 
 - **SQLite database**: Message metadata (dates, subjects, labels, message IDs)
