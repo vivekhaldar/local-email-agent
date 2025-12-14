@@ -183,6 +183,11 @@ def main():
         default="24 hours",
         help="Duration string for display (e.g., '24 hours', '2 days')"
     )
+    parser.add_argument(
+        "--duration",
+        default="1d",
+        help="Compact duration code for filename (e.g., '1d', '3d', '1w')"
+    )
     args = parser.parse_args()
 
     # Read input
@@ -204,7 +209,8 @@ def main():
     if args.output:
         output_path = Path(args.output)
     else:
-        output_path = BRIEFS_DIR / f"{datetime.now().strftime('%Y-%m-%d')}.html"
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        output_path = BRIEFS_DIR / f"{date_str}_{args.duration}.html"
 
     # Render
     render_brief(classified_items, args.since, output_path)

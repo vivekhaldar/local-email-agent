@@ -77,8 +77,10 @@ Report the final stats from the script output.
 ### Step 5: Render HTML Brief
 
 ```bash
-cd ~/MAIL && uv run scripts/render_brief.py --input /tmp/emails_classified.json --since "{DURATION_TEXT}"
+cd ~/MAIL && uv run scripts/render_brief.py --input /tmp/emails_classified.json --since "{DURATION_TEXT}" --duration "{DURATION}"
 ```
+
+The `--duration` flag (e.g., "1d", "3d") is used in the output filename.
 
 ### Step 6: Final Report
 
@@ -98,7 +100,7 @@ Processed N items from the last {duration}:
   📰 Newsletters: A
   ⚙️ Automated: B
 
-Brief saved to: ~/MAIL/briefs/YYYY-MM-DD.html
+Brief saved to: ~/MAIL/briefs/YYYY-MM-DD_{DURATION}.html
 ```
 
 Offer to open the brief in the browser.
