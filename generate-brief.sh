@@ -56,4 +56,32 @@ echo ""
 
 # Run Claude in headless mode from ~/MAIL directory
 cd "$(dirname "$0")"
-claude -p "/email-brief $SINCE"
+
+# Build the prompt with full instructions
+PROMPT="Generate an email brief for the last $SINCE_TEXT.
+
+Step 1: Run this to fetch recent emails:
+uv run scripts/fetch_emails.py --since $SINCE --output /tmp/emails_raw.json
+
+Step 2: Read /tmp/emails_raw.json and for each email, parse its content by running:
+uv run scripts/parse_eml.py <filename>
+
+Step 3: Classify each email into one of: URGENT, NEEDS_RESPONSE, FYI, NEWSLETTER, AUTOMATED
+- URGENT: explicit urgency words, deadlines, time-sensitive
+- NEEDS_RESPONSE: questions, requests waiting for reply
+- FYI: informational, no action needed
+- NEWSLETTER: has CATEGORY_PROMOTIONS label
+- AUTOMATED: has CATEGORY_UPDATES label, notifications
+
+For each email, provide a 1-2 sentence summary and any action items.
+
+Step 4: Create /tmp/emails_classified.json with the classified emails in this format:
+{\"emails\": [{\"message_num\": N, \"uid\": \"...\", \"gmail_link\": \"...\", \"from_name\": \"...\", \"subject\": \"...\", \"date\": \"...\", \"category\": \"...\", \"summary\": \"...\", \"action_items\": \"...\"}]}
+
+Step 5: Render the HTML brief:
+uv run scripts/render_brief.py --input /tmp/emails_classified.json --since \"$SINCE_TEXT\"
+
+Step 6: Report the summary and the path to the generated brief."
+
+# Use --allowedTools to pre-approve the tools we need
+claude -p "$PROMPT" --allowedTools "Bash,Read,Write,Edit"
