@@ -178,12 +178,28 @@
 
 ## First Implementation: Daily Email Brief
 
-### Architecture: Claude Skill + Python Helpers
+### Architecture: Shell Script + Project-Local Skill + Python Helpers
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Claude Skill: email-brief                              │
-│  (~/.claude/skills/email-brief/SKILL.md)                │
+│  generate-brief.sh                                      │
+│  (Entry point - invokes Claude in headless mode)        │
+│                                                         │
+│  ./generate-brief.sh --since 1d                         │
+│  ./generate-brief.sh --since 12h                        │
+│  ./generate-brief.sh --since 1w                         │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│  claude -p "generate email brief for last {since}"      │
+│  (runs in ~/MAIL directory, picks up local skill)       │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│  Project-Local Skill: .claude/commands/email-brief.md   │
+│  (scoped to ~/MAIL, not global ~/.claude)               │
 │                                                         │
 │  Orchestrates the brief generation:                     │
 │  1. Calls Python scripts for data gathering             │
@@ -202,10 +218,57 @@
 ```
 
 **Why this architecture:**
-- Claude skill handles the "thinking" (classification, summarization)
-- Python scripts handle repeatable I/O (DB queries, file parsing, HTML generation)
-- Skill can be invoked with natural language: "generate email brief for last 48 hours"
+- **Shell script entry point**: Easy to run, shows progress, takes `--since` argument
+- **Claude headless mode**: `claude -p` runs the prompt non-interactively
+- **Project-local skill**: Lives in `~/MAIL/.claude/commands/`, not global `~/.claude`
+- **Python scripts**: Handle repeatable I/O (DB queries, file parsing, HTML generation)
 - Template ensures consistent look across briefs
+
+### Entry Point: `generate-brief.sh`
+
+```bash
+#!/bin/bash
+# ABOUTME: Generate an email brief using Claude in headless mode
+# ABOUTME: Usage: ./generate-brief.sh --since 1d
+
+set -e
+
+# Default: last 24 hours
+SINCE="1d"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --since)
+            SINCE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Usage: $0 [--since <duration>]"
+            echo "  duration: 1d, 12h, 1w, 1mo, 2d, etc."
+            exit 1
+            ;;
+    esac
+done
+
+# Convert duration to human-readable for prompt
+case $SINCE in
+    *h) SINCE_TEXT="${SINCE%h} hours" ;;
+    *d) SINCE_TEXT="${SINCE%d} days" ;;
+    *w) SINCE_TEXT="${SINCE%w} weeks" ;;
+    *mo) SINCE_TEXT="${SINCE%mo} months" ;;
+    *) SINCE_TEXT="$SINCE" ;;
+esac
+
+echo "📬 Generating email brief for last $SINCE_TEXT..."
+echo ""
+
+# Run Claude in headless mode from ~/MAIL directory
+cd ~/MAIL
+claude -p "Generate an email brief for the last $SINCE_TEXT. Use the /email-brief command."
+```
+
+**Progress output**: Claude's headless mode streams output, so user sees progress as emails are processed.
 
 ### Gmail Message Links
 
@@ -304,25 +367,32 @@ Output:
 uv run scripts/render_brief.py --input=classified.json --output=~/MAIL/briefs/2024-12-13.html
 ```
 
-### Claude Skill: `email-brief`
+### Project-Local Command: `/email-brief`
 
-Location: `~/.claude/skills/email-brief/SKILL.md`
+Location: `~/MAIL/.claude/commands/email-brief.md`
 
-**Trigger phrases:**
-- "generate email brief"
-- "email summary"
-- "what emails did I get"
-- "daily brief"
+This is a **slash command** (not a skill), scoped to the ~/MAIL project directory.
 
-**Skill workflow:**
-1. Parse time range from user request (default: 24h)
-2. Run `fetch_emails.py` to get recent message metadata
+**Invoked via:**
+```bash
+# From within ~/MAIL directory
+claude -p "Generate email brief for last 2 days. Use /email-brief"
+
+# Or interactively
+claude> /email-brief 2d
+```
+
+**Command workflow:**
+1. Parse time range from argument (e.g., "2d", "12h", "1w")
+2. Run `fetch_emails.py --since={duration}` to get recent message metadata
 3. For each batch of emails:
    - Run `parse_eml.py` to get content
    - Classify and summarize (Claude's job)
+   - Print progress: "Processing batch 1/5... 20 emails classified"
 4. Group by category
 5. Run `render_brief.py` to generate HTML
-6. Report summary to user + path to HTML file
+6. Print summary stats + path to HTML file
+7. Open HTML in browser (optional)
 
 ### Classification Categories
 
@@ -338,15 +408,19 @@ Location: `~/.claude/skills/email-brief/SKILL.md`
 
 ```
 ~/MAIL/
+├── generate-brief.sh        # Entry point: ./generate-brief.sh --since 1d
+├── .claude/
+│   └── commands/
+│       └── email-brief.md   # Project-local slash command
 ├── scripts/
-│   ├── fetch_emails.py     # Query SQLite, return JSON
-│   ├── parse_eml.py        # Parse single EML, return JSON
-│   └── render_brief.py     # Generate HTML from template
+│   ├── fetch_emails.py      # Query SQLite, return JSON
+│   ├── parse_eml.py         # Parse single EML, return JSON
+│   └── render_brief.py      # Generate HTML from template
 ├── templates/
-│   └── brief.html          # Jinja2 HTML template
-├── briefs/                  # Generated HTML briefs
+│   └── brief.html           # Jinja2 HTML template
+├── briefs/                   # Generated HTML briefs (gitignored)
 │   └── 2024-12-13.html
-├── gmail/                   # Email archive (gitignored)
+├── gmail/                    # Email archive (gitignored)
 ├── sync-gmail.sh
 ├── gmail-stats.sh
 └── README.md
