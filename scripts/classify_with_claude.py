@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-# ABOUTME: Classify emails/threads by calling claude CLI with haiku model
+# ABOUTME: Classify emails/threads using Claude Agent SDK with haiku model
 # ABOUTME: Usage: uv run scripts/classify_with_claude.py --grouped emails_grouped.json --output emails_classified.json
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
+
+from claude_client import query_claude_sync, parse_json_response, ClaudeQueryError
 
 
 def classify_by_labels(item: dict) -> tuple[str, str] | None:
@@ -105,66 +106,46 @@ Respond with ONLY this JSON (no markdown, no explanation):
 
 
 def _call_claude(prompt: str, subject: str, fallback_name: str) -> dict:
-    """Call claude CLI with the given prompt and return parsed result."""
+    """Call Claude Agent SDK with the given prompt and return parsed result."""
     try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--model", "haiku", "--output-format", "text"],
-            capture_output=True,
-            text=True,
-            timeout=90  # Slightly longer for threads
-        )
-
-        if result.returncode != 0:
-            print(f"  Warning: claude returned {result.returncode} for '{subject[:40]}...'", file=sys.stderr)
-            return {
-                "category": "FYI",
-                "summary": f"{fallback_name}: {subject}",
-                "action_items": None
-            }
-
-        # Parse the JSON response
-        response_text = result.stdout.strip()
-
-        # Handle potential markdown code blocks
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
-
-        response_text = response_text.strip()
-        parsed = json.loads(response_text)
+        response_text, cost = query_claude_sync(prompt, timeout_seconds=90)
+        parsed = parse_json_response(response_text)
 
         return {
             "category": parsed.get("category", "FYI").upper(),
             "summary": parsed.get("summary", f"{fallback_name}: {subject}"),
-            "action_items": parsed.get("action_items")
+            "action_items": parsed.get("action_items"),
+            "cost_usd": cost
         }
 
-    except subprocess.TimeoutExpired:
+    except TimeoutError:
         print(f"  Warning: timeout for '{subject[:40]}...'", file=sys.stderr)
         return {
             "category": "FYI",
             "summary": f"{fallback_name}: {subject}",
-            "action_items": None
+            "action_items": None,
+            "cost_usd": 0.0
         }
-    except json.JSONDecodeError as e:
+    except ValueError as e:
         print(f"  Warning: JSON parse error for '{subject[:40]}...': {e}", file=sys.stderr)
         return {
             "category": "FYI",
             "summary": f"{fallback_name}: {subject}",
-            "action_items": None
+            "action_items": None,
+            "cost_usd": 0.0
         }
-    except Exception as e:
-        print(f"  Warning: error for '{subject[:40]}...': {e}", file=sys.stderr)
+    except ClaudeQueryError as e:
+        print(f"  Warning: Claude error for '{subject[:40]}...': {e}", file=sys.stderr)
         return {
             "category": "FYI",
             "summary": f"{fallback_name}: {subject}",
-            "action_items": None
+            "action_items": None,
+            "cost_usd": 0.0
         }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Classify emails/threads using claude CLI with haiku")
+    parser = argparse.ArgumentParser(description="Classify emails/threads using Claude Agent SDK")
     parser.add_argument("--grouped", required=True, help="Grouped emails JSON file (from group_threads.py)")
     parser.add_argument("--output", required=True, help="Output classified JSON file")
     args = parser.parse_args()
@@ -177,6 +158,7 @@ def main():
     total = len(items)
     needs_claude = 0
     pre_classified = 0
+    total_cost = 0.0
 
     print(f"🏷️ Classifying {total} items (threads + single emails)...", file=sys.stderr)
 
@@ -208,7 +190,7 @@ def main():
             item["action_items"] = None
             pre_classified += 1
         else:
-            # Use claude CLI for classification
+            # Use Claude Agent SDK for classification
             needs_claude += 1
             print(f"  [{needs_claude}] {display}", file=sys.stderr)
 
@@ -220,6 +202,7 @@ def main():
             item["category"] = result["category"]
             item["summary"] = result["summary"]
             item["action_items"] = result["action_items"]
+            total_cost += result.get("cost_usd", 0.0)
 
         # Clean up messages (remove body_preview, labels from output)
         for msg in messages:
@@ -245,7 +228,9 @@ def main():
     single_count = sum(1 for i in classified_items if not i.get("is_thread"))
 
     print(f"\n📊 Classified {total} items ({thread_count} threads, {single_count} singles):", file=sys.stderr)
-    print(f"   Pre-classified: {pre_classified}, Claude Haiku: {needs_claude}", file=sys.stderr)
+    print(f"   Pre-classified: {pre_classified}, Claude SDK: {needs_claude}", file=sys.stderr)
+    if total_cost > 0:
+        print(f"   💰 Total cost: ${total_cost:.4f}", file=sys.stderr)
     for cat in ["URGENT", "NEEDS_RESPONSE", "CALENDAR", "FINANCIAL", "FYI", "NEWSLETTER", "AUTOMATED"]:
         if cat in categories:
             print(f"   {cat}: {categories[cat]}", file=sys.stderr)

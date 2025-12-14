@@ -69,12 +69,13 @@ Keep a local mirror of your Gmail using [Got Your Back (GYB)](https://github.com
 ├── generate-brief.sh            # Email brief generator
 ├── email-search.sh              # Natural language search
 ├── scripts/
-│   ├── fetch_emails.py          # Fetch emails from SQLite
-│   ├── parse_eml.py             # Parse EML files
-│   ├── group_threads.py         # Group emails into threads
+│   ├── claude_client.py         # Claude Agent SDK client
 │   ├── classify_with_claude.py  # AI classification
-│   ├── render_brief.py          # Render HTML brief
-│   └── email_search.py          # Search implementation
+│   ├── email_search.py          # Search implementation
+│   ├── fetch_emails.py          # Fetch emails from SQLite
+│   ├── group_threads.py         # Group emails into threads
+│   ├── parse_eml.py             # Parse EML files
+│   └── render_brief.py          # Render HTML brief
 ├── templates/
 │   ├── brief.html               # Brief HTML template
 │   └── search-results.html      # Search results template
@@ -87,10 +88,20 @@ Keep a local mirror of your Gmail using [Got Your Back (GYB)](https://github.com
 
 ## Requirements
 
-- Python 3.11+ (via `uv`)
-- [Claude CLI](https://github.com/anthropics/claude-code) with API access
+- Python 3.12+ (via `uv`)
+- Node.js 18+ (for Claude Agent SDK)
+- [Claude CLI](https://github.com/anthropics/claude-code) or Claude Max subscription
 - GYB installed at `~/bin/gyb/`
 - Gmail API credentials in `pass` at `API_KEYS/gyb-gmail-client-secrets`
+
+### Authentication
+
+The Claude Agent SDK respects this authentication precedence:
+1. `ANTHROPIC_API_KEY` environment variable (pay-as-you-go)
+2. OAuth token (if approved by Anthropic)
+3. Claude Max subscription (fallback if no API key is set)
+
+For personal use with Claude Max, ensure `ANTHROPIC_API_KEY` is **not** set and the SDK will use your existing Claude Code login.
 
 ## Setup
 
@@ -174,18 +185,19 @@ uv run pytest --cov=scripts --cov-report=html
 # Then open htmlcov/index.html
 ```
 
-Current coverage: ~33% (focused on pure functions and business logic).
+Current coverage: ~34% (focused on pure functions and business logic).
 
 ### Project Structure for Tests
 
 ```
 tests/
 ├── conftest.py              # Shared fixtures
-├── test_fetch_emails.py     # Duration parsing
-├── test_parse_eml.py        # Email parsing
-├── test_group_threads.py    # Thread grouping
+├── test_claude_client.py    # Claude SDK client
 ├── test_classify.py         # Classification logic
 ├── test_email_search.py     # Search functions
+├── test_fetch_emails.py     # Duration parsing
+├── test_group_threads.py    # Thread grouping
+├── test_parse_eml.py        # Email parsing
 └── test_render_brief.py     # Brief rendering
 ```
 

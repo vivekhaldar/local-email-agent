@@ -7,7 +7,8 @@ This is a local email agent that syncs Gmail locally and provides AI-powered too
 - **Purpose**: AI-powered tools for a local Gmail archive
 - **Email storage**: `~/MAIL/gmail/` with SQLite database and EML files
 - **Python**: Uses `uv` for all Python operations (no direct python3)
-- **LLM**: Uses Claude CLI (`claude -p`) with Haiku model for classification
+- **LLM**: Uses Claude Agent SDK with Haiku model for classification
+- **Authentication**: Falls back to Claude Max subscription if no `ANTHROPIC_API_KEY` is set
 
 ## Key Commands
 
@@ -44,11 +45,12 @@ email_search.py (query parsing → candidate search → ranking → answer gener
 
 | File | Purpose |
 |------|---------|
-| `scripts/fetch_emails.py` | Query SQLite for recent emails |
-| `scripts/parse_eml.py` | Parse EML files, extract headers/body |
-| `scripts/group_threads.py` | Group emails into conversation threads |
+| `scripts/claude_client.py` | Shared Claude Agent SDK client with sync/async wrappers |
 | `scripts/classify_with_claude.py` | Classify and summarize using Claude |
 | `scripts/email_search.py` | Natural language search implementation |
+| `scripts/fetch_emails.py` | Query SQLite for recent emails |
+| `scripts/group_threads.py` | Group emails into conversation threads |
+| `scripts/parse_eml.py` | Parse EML files, extract headers/body |
 | `scripts/render_brief.py` | Render HTML briefs with Jinja2 |
 | `templates/brief.html` | Jinja2 template for briefs |
 | `templates/search-results.html` | Jinja2 template for search results |

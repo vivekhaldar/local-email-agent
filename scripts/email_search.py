@@ -7,13 +7,14 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
 import sys
 import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+
+from claude_client import query_claude_sync, parse_json_response, ClaudeQueryError
 
 # Paths
 DB_PATH = Path.home() / "MAIL" / "gmail" / "msg-db.sqlite"
@@ -52,25 +53,14 @@ def parse_duration(duration_str: str) -> timedelta:
 
 
 def call_claude(prompt: str, timeout: int = 90) -> str:
-    """Call claude CLI and return response text."""
+    """Call Claude Agent SDK and return response text."""
     try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--model", "haiku", "--output-format", "text"],
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-
-        if result.returncode != 0:
-            print(f"Warning: claude returned {result.returncode}", file=sys.stderr)
-            return ""
-
-        return result.stdout.strip()
-
-    except subprocess.TimeoutExpired:
+        response_text, _ = query_claude_sync(prompt, timeout_seconds=timeout)
+        return response_text
+    except TimeoutError:
         print("Warning: claude timed out", file=sys.stderr)
         return ""
-    except Exception as e:
+    except ClaudeQueryError as e:
         print(f"Warning: claude error: {e}", file=sys.stderr)
         return ""
 
