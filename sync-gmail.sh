@@ -15,6 +15,19 @@ if [[ ! -f "$CLIENT_SECRETS" ]]; then
     pass show API_KEYS/gyb-gmail-client-secrets > "$CLIENT_SECRETS"
 fi
 
-echo "Starting Gmail sync for $EMAIL..."
-"$GYB_DIR/gyb" --email "$EMAIL" --action backup --local-folder "$LOCAL_FOLDER" --fast-incremental
+# Default to syncing last 3 days (covers weekends, catches any missed)
+# Use --full flag for complete sync
+SEARCH="newer_than:3d"
+if [[ "$1" == "--full" ]]; then
+    SEARCH=""
+    echo "Starting FULL Gmail sync for $EMAIL..."
+else
+    echo "Starting Gmail sync for $EMAIL (last 3 days)..."
+fi
+
+if [[ -n "$SEARCH" ]]; then
+    "$GYB_DIR/gyb" --email "$EMAIL" --action backup --local-folder "$LOCAL_FOLDER" --fast-incremental --search "$SEARCH"
+else
+    "$GYB_DIR/gyb" --email "$EMAIL" --action backup --local-folder "$LOCAL_FOLDER" --fast-incremental
+fi
 echo "Sync complete."
