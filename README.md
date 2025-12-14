@@ -141,6 +141,54 @@ sqlite3 ~/MAIL/gmail/msg-db.sqlite \
 sqlite3 ~/MAIL/gmail/msg-db.sqlite ".schema"
 ```
 
+## Development
+
+### Running Tests
+
+The project uses pytest for unit testing:
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with verbose output
+uv run pytest -v
+
+# Run a specific test file
+uv run pytest tests/test_parse_eml.py
+
+# Run tests matching a pattern
+uv run pytest -k "test_parse"
+```
+
+### Test Coverage
+
+Generate a coverage report:
+
+```bash
+# Coverage with terminal output
+uv run pytest --cov=scripts --cov-report=term-missing
+
+# Coverage with HTML report
+uv run pytest --cov=scripts --cov-report=html
+# Then open htmlcov/index.html
+```
+
+Current coverage: ~33% (focused on pure functions and business logic).
+
+### Project Structure for Tests
+
+```
+tests/
+├── conftest.py              # Shared fixtures
+├── test_fetch_emails.py     # Duration parsing
+├── test_parse_eml.py        # Email parsing
+├── test_group_threads.py    # Thread grouping
+├── test_classify.py         # Classification logic
+├── test_email_search.py     # Search functions
+└── test_render_brief.py     # Brief rendering
+```
+
 ## Troubleshooting
 
 ### "Access blocked" error

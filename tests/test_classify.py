@@ -1,0 +1,172 @@
+# ABOUTME: Tests for classify_emails.py and classify_with_claude.py
+# ABOUTME: Tests classify_by_labels() and generate_template_summary()
+
+import pytest
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+from classify_emails import classify_by_labels as classify_by_labels_simple
+from classify_emails import generate_template_summary
+from classify_with_claude import classify_by_labels as classify_by_labels_threaded
+
+
+class TestClassifyByLabelsSimple:
+    """Tests for classify_by_labels() in classify_emails.py."""
+
+    def test_promotions_label(self):
+        """CATEGORY_PROMOTIONS maps to NEWSLETTER."""
+        email = {"labels": "INBOX|CATEGORY_PROMOTIONS|UNREAD"}
+        assert classify_by_labels_simple(email) == "NEWSLETTER"
+
+    def test_updates_label(self):
+        """CATEGORY_UPDATES maps to AUTOMATED."""
+        email = {"labels": "INBOX|CATEGORY_UPDATES"}
+        assert classify_by_labels_simple(email) == "AUTOMATED"
+
+    def test_promotions_in_list(self):
+        """Labels as list also works."""
+        email = {"labels": ["INBOX", "CATEGORY_PROMOTIONS", "UNREAD"]}
+        # Note: the function uses "in" which works for both strings and lists
+        assert classify_by_labels_simple(email) == "NEWSLETTER"
+
+    def test_no_special_labels(self):
+        """No special labels returns None."""
+        email = {"labels": "INBOX|UNREAD"}
+        assert classify_by_labels_simple(email) is None
+
+    def test_empty_labels(self):
+        """Empty labels returns None."""
+        email = {"labels": ""}
+        assert classify_by_labels_simple(email) is None
+
+    def test_no_labels_key(self):
+        """Missing labels key returns None."""
+        email = {}
+        assert classify_by_labels_simple(email) is None
+
+    def test_promotions_takes_precedence(self):
+        """PROMOTIONS checked before UPDATES."""
+        email = {"labels": "CATEGORY_PROMOTIONS|CATEGORY_UPDATES"}
+        assert classify_by_labels_simple(email) == "NEWSLETTER"
+
+
+class TestGenerateTemplateSummary:
+    """Tests for generate_template_summary() function."""
+
+    def test_newsletter_summary(self):
+        """Newsletter generates marketing summary."""
+        email = {"from_name": "Amazon", "subject": "Deal of the Day"}
+        result = generate_template_summary(email, "NEWSLETTER")
+        assert "Marketing email" in result
+        assert "Amazon" in result
+        assert "Deal of the Day" in result
+
+    def test_automated_summary(self):
+        """Automated generates notification summary."""
+        email = {"from_name": "GitHub", "subject": "New comment on PR #123"}
+        result = generate_template_summary(email, "AUTOMATED")
+        assert "Notification" in result
+        assert "GitHub" in result
+        assert "New comment" in result
+
+    def test_unknown_from_name(self):
+        """Missing from_name uses 'Unknown'."""
+        email = {"subject": "Test"}
+        result = generate_template_summary(email, "NEWSLETTER")
+        assert "Unknown" in result
+
+    def test_empty_subject(self):
+        """Empty subject is handled."""
+        email = {"from_name": "Sender", "subject": ""}
+        result = generate_template_summary(email, "NEWSLETTER")
+        assert "Sender" in result
+
+
+class TestClassifyByLabelsThreaded:
+    """Tests for classify_by_labels() in classify_with_claude.py (threaded version)."""
+
+    def test_single_email_promotions(self):
+        """Single email with PROMOTIONS label."""
+        item = {
+            "is_thread": False,
+            "messages": [
+                {"labels": "CATEGORY_PROMOTIONS", "from_name": "Store", "subject": "Sale"}
+            ]
+        }
+        result = classify_by_labels_threaded(item)
+        assert result is not None
+        assert result[0] == "NEWSLETTER"
+        assert "Marketing email" in result[1]
+
+    def test_thread_promotions(self):
+        """Thread with PROMOTIONS label."""
+        item = {
+            "is_thread": True,
+            "subject": "Promo Thread",
+            "messages": [
+                {"labels": "", "from_name": "Store", "subject": "Promo"},
+                {"labels": "CATEGORY_PROMOTIONS", "from_name": "Store", "subject": "Re: Promo"}
+            ]
+        }
+        result = classify_by_labels_threaded(item)
+        assert result is not None
+        assert result[0] == "NEWSLETTER"
+        assert "thread" in result[1].lower()
+
+    def test_single_email_updates(self):
+        """Single email with UPDATES label."""
+        item = {
+            "is_thread": False,
+            "messages": [
+                {"labels": "CATEGORY_UPDATES", "from_name": "GitHub", "subject": "PR merged"}
+            ]
+        }
+        result = classify_by_labels_threaded(item)
+        assert result is not None
+        assert result[0] == "AUTOMATED"
+        assert "Notification" in result[1]
+
+    def test_thread_updates(self):
+        """Thread with UPDATES label."""
+        item = {
+            "is_thread": True,
+            "subject": "CI Status",
+            "messages": [
+                {"labels": "CATEGORY_UPDATES", "from_name": "CI Bot", "subject": "Build passed"}
+            ]
+        }
+        result = classify_by_labels_threaded(item)
+        assert result is not None
+        assert result[0] == "AUTOMATED"
+        assert "thread" in result[1].lower()
+
+    def test_no_special_labels(self):
+        """No special labels returns None."""
+        item = {
+            "is_thread": False,
+            "messages": [
+                {"labels": "INBOX|UNREAD", "from_name": "Boss", "subject": "Meeting"}
+            ]
+        }
+        assert classify_by_labels_threaded(item) is None
+
+    def test_empty_messages(self):
+        """Empty messages list returns None."""
+        item = {"is_thread": False, "messages": []}
+        assert classify_by_labels_threaded(item) is None
+
+    def test_uses_most_recent_message_labels(self):
+        """Uses most recent message's labels."""
+        item = {
+            "is_thread": True,
+            "subject": "Thread",
+            "messages": [
+                {"labels": "", "from_name": "Alice", "subject": "Hello"},  # First, no label
+                {"labels": "CATEGORY_PROMOTIONS", "from_name": "Bob", "subject": "Re: Hello"}  # Last has PROMOTIONS
+            ]
+        }
+        result = classify_by_labels_threaded(item)
+        assert result is not None
+        assert result[0] == "NEWSLETTER"

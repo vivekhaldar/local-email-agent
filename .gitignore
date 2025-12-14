@@ -15,6 +15,10 @@ __pycache__/
 venv/
 uv.lock
 
+# Test coverage
+.coverage
+htmlcov/
+
 # OS
 .DS_Store
 
