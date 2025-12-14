@@ -169,41 +169,86 @@
 
 ## Design Decisions (Confirmed)
 
-1. **Time range**: Configurable via flag (e.g., `--since=24h`, `--since=monday`)
-2. **Output**: Both terminal (summary) and markdown file (full report to `~/MAIL/briefs/`)
-3. **LLM**: Claude API - quality over privacy concerns
+1. **Time range**: Configurable via argument (e.g., `24h`, `48h`, `monday`, `2024-12-10`)
+2. **Output**: HTML file with elegant typography, consistent template day-to-day
+3. **LLM**: Claude API via Claude Code skill
+4. **Gmail links**: Every email summary links back to original in Gmail
 
 ---
 
 ## First Implementation: Daily Email Brief
 
-### Usage
-```bash
-# Default: last 24 hours
-~/MAIL/email-brief.py
+### Architecture: Claude Skill + Python Helpers
 
-# Custom time range
-~/MAIL/email-brief.py --since=48h
-~/MAIL/email-brief.py --since=monday
-~/MAIL/email-brief.py --since="2024-12-10"
+```
+┌─────────────────────────────────────────────────────────┐
+│  Claude Skill: email-brief                              │
+│  (~/.claude/skills/email-brief/SKILL.md)                │
+│                                                         │
+│  Orchestrates the brief generation:                     │
+│  1. Calls Python scripts for data gathering             │
+│  2. Analyzes and classifies emails                      │
+│  3. Generates HTML output from template                 │
+└─────────────────────────────────────────────────────────┘
+           │                    │                    │
+           ▼                    ▼                    ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│ fetch_emails.py │  │  parse_eml.py   │  │ render_brief.py │
+│                 │  │                 │  │                 │
+│ Query SQLite    │  │ Parse EML files │  │ Generate HTML   │
+│ Get recent msgs │  │ Extract headers │  │ from template   │
+│ Return JSON     │  │ Extract body    │  │                 │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
 
-### Output Structure
+**Why this architecture:**
+- Claude skill handles the "thinking" (classification, summarization)
+- Python scripts handle repeatable I/O (DB queries, file parsing, HTML generation)
+- Skill can be invoked with natural language: "generate email brief for last 48 hours"
+- Template ensures consistent look across briefs
+
+### Gmail Message Links
+
+Gmail URL format:
+```
+https://mail.google.com/mail/u/0/#all/{message_id}
+```
+
+The `message_id` is stored in the `uids` table and matches the EML filename:
+```sql
+SELECT u.uid FROM uids u WHERE u.message_num = ?
+-- Returns: 19b18f6a1dda4196
+-- Link: https://mail.google.com/mail/u/0/#all/19b18f6a1dda4196
+```
+
+### Output: HTML Brief
+
 ```
 ~/MAIL/briefs/
-└── 2024-12-13.md   # Full report with all summaries
-
-Terminal output:
-- Quick stats (X emails, Y urgent, Z need response)
-- Top 5 urgent/important items
-- Path to full report
+├── 2024-12-13.html      # Today's brief
+├── 2024-12-12.html      # Yesterday's
+└── template.html        # Shared template
 ```
+
+**HTML Template Features:**
+- Clean, readable typography (system fonts, good line height)
+- Sections with visual hierarchy (Urgent → Needs Response → FYI → Newsletters)
+- Each email summary is a card with:
+  - Sender name + email
+  - Subject (linked to Gmail)
+  - Date/time
+  - 1-2 sentence summary
+  - Action items (if any)
+  - Category badge
+- Mobile-responsive
+- Print-friendly
 
 ### Database Schema (GYB)
 
 ```sql
 -- messages: message_num, message_filename, message_internaldate
 -- labels: message_num, label (e.g., "INBOX", "UNREAD", "CATEGORY_PROMOTIONS")
+-- uids: message_num, uid (Gmail message ID for URL links)
 -- Note: Subject/From/Body are ONLY in EML files, not in SQLite
 ```
 
@@ -213,66 +258,176 @@ Terminal output:
 - `UNREAD` → hasn't been seen yet
 - Custom labels available too
 
-### Implementation Steps
+### Python Helper Scripts
 
-1. **Query recent emails from SQLite**
-   ```sql
-   SELECT m.message_num, m.message_filename, m.message_internaldate,
-          GROUP_CONCAT(l.label) as labels
-   FROM messages m
-   LEFT JOIN labels l ON m.message_num = l.message_num
-   WHERE m.message_internaldate >= ?
-   GROUP BY m.message_num
-   ORDER BY m.message_internaldate DESC
-   ```
+**1. `scripts/fetch_emails.py`**
+```bash
+# Fetch recent emails as JSON
+uv run scripts/fetch_emails.py --since=24h
+```
+Output:
+```json
+[
+  {
+    "message_num": 1,
+    "uid": "19b18f6a1dda4196",
+    "gmail_link": "https://mail.google.com/mail/u/0/#all/19b18f6a1dda4196",
+    "filename": "2025/12/13/19b18f6a1dda4196.eml",
+    "date": "2025-12-13T10:26:14",
+    "labels": ["INBOX", "UNREAD", "CATEGORY_UPDATES"]
+  },
+  ...
+]
+```
 
-2. **Parse EML files for headers + body**
-   - Use Python `email` module
-   - Extract: From, Subject, Date, plain text body
-   - Handle multipart (prefer text/plain, fallback to text/html→strip tags)
-   - Truncate very long emails (e.g., >2000 chars)
+**2. `scripts/parse_eml.py`**
+```bash
+# Parse EML file, extract headers and body
+uv run scripts/parse_eml.py ~/MAIL/gmail/2025/12/13/19b18f6a1dda4196.eml
+```
+Output:
+```json
+{
+  "from": "notifications@github.com",
+  "from_name": "GitHub",
+  "to": "vh@vivekhaldar.com",
+  "subject": "Re: [org/repo] Fix login bug (#123)",
+  "date": "2025-12-13T10:26:14",
+  "body_text": "...",
+  "body_preview": "First 500 chars..."
+}
+```
 
-3. **Pre-filter obvious categories**
-   - Skip or downrank: `CATEGORY_PROMOTIONS`, known newsletter senders
-   - Prioritize: `UNREAD`, emails from VIP senders
+**3. `scripts/render_brief.py`**
+```bash
+# Render classified emails to HTML
+uv run scripts/render_brief.py --input=classified.json --output=~/MAIL/briefs/2024-12-13.html
+```
 
-4. **Batch to Claude API**
-   - Group emails (e.g., 10-20 per API call to stay under context limits)
-   - Prompt: Classify + summarize + extract action items
-   - Return structured JSON
+### Claude Skill: `email-brief`
 
-5. **Generate report**
-   - Group by category (Urgent, Needs Response, FYI, etc.)
-   - Format as markdown with sections
-   - Save to `~/MAIL/briefs/YYYY-MM-DD.md`
-   - Print summary to terminal
+Location: `~/.claude/skills/email-brief/SKILL.md`
 
-### Classification Prompt (Draft)
+**Trigger phrases:**
+- "generate email brief"
+- "email summary"
+- "what emails did I get"
+- "daily brief"
+
+**Skill workflow:**
+1. Parse time range from user request (default: 24h)
+2. Run `fetch_emails.py` to get recent message metadata
+3. For each batch of emails:
+   - Run `parse_eml.py` to get content
+   - Classify and summarize (Claude's job)
+4. Group by category
+5. Run `render_brief.py` to generate HTML
+6. Report summary to user + path to HTML file
+
+### Classification Categories
+
+| Category | Badge Color | Criteria |
+|----------|-------------|----------|
+| 🔴 URGENT | Red | Explicit urgency, deadlines, VIP sender |
+| 🟡 NEEDS_RESPONSE | Yellow | Question asked, request made, waiting on you |
+| 🔵 FYI | Blue | Informational, no action needed |
+| 📰 NEWSLETTER | Gray | `CATEGORY_PROMOTIONS` label or known sender |
+| ⚙️ AUTOMATED | Gray | `CATEGORY_UPDATES`, notifications, receipts |
+
+### File Structure (Updated)
 
 ```
-For each email, provide:
-1. Category: URGENT | NEEDS_RESPONSE | FYI | NEWSLETTER | PROMOTIONAL | AUTOMATED
-2. Summary: 1-2 sentence summary
-3. Action items: List any explicit requests or deadlines
-4. Urgency reason: Why this is urgent (if applicable)
+~/MAIL/
+├── scripts/
+│   ├── fetch_emails.py     # Query SQLite, return JSON
+│   ├── parse_eml.py        # Parse single EML, return JSON
+│   └── render_brief.py     # Generate HTML from template
+├── templates/
+│   └── brief.html          # Jinja2 HTML template
+├── briefs/                  # Generated HTML briefs
+│   └── 2024-12-13.html
+├── gmail/                   # Email archive (gitignored)
+├── sync-gmail.sh
+├── gmail-stats.sh
+└── README.md
+```
 
-Signals for URGENT:
-- Explicit urgency words (ASAP, urgent, deadline)
-- Time-sensitive requests
-- From known VIP senders
-- Requires decision/approval
+### HTML Template Design
+
+```html
+<!-- templates/brief.html (Jinja2) -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Email Brief - {{ date }}</title>
+  <style>
+    /* Clean typography */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      color: #333;
+    }
+    /* Category sections */
+    .section { margin-bottom: 2rem; }
+    .section-header {
+      font-size: 1.25rem;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 0.5rem;
+    }
+    /* Email cards */
+    .email-card {
+      background: #fafafa;
+      border-left: 4px solid #ccc;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+    .email-card.urgent { border-left-color: #e53e3e; }
+    .email-card.needs-response { border-left-color: #ecc94b; }
+    .email-card.fyi { border-left-color: #4299e1; }
+    /* Links */
+    a { color: #2b6cb0; }
+    .gmail-link { font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <h1>📬 Email Brief</h1>
+  <p class="meta">{{ date }} · {{ total_count }} emails · {{ urgent_count }} urgent</p>
+
+  {% for section in sections %}
+  <div class="section">
+    <h2 class="section-header">{{ section.icon }} {{ section.name }}</h2>
+    {% for email in section.emails %}
+    <div class="email-card {{ section.class }}">
+      <div class="sender">{{ email.from_name }}</div>
+      <div class="subject">
+        <a href="{{ email.gmail_link }}">{{ email.subject }}</a>
+      </div>
+      <div class="summary">{{ email.summary }}</div>
+      {% if email.action_items %}
+      <div class="actions">Action: {{ email.action_items }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</body>
+</html>
 ```
 
 ### Dependencies
 - Python 3.x (via uv)
-- anthropic SDK
+- Jinja2 (HTML templating)
 - sqlite3 (stdlib)
 - email (stdlib)
 
 ### Design Decision: Promotional Emails
 - Include in a separate **"Newsletters & Promotions"** section at the end
 - Don't send to LLM for classification (use Gmail labels)
-- Just list sender + subject, no summarization
+- Just list sender + subject with Gmail link, no summarization
 
 ---
 
