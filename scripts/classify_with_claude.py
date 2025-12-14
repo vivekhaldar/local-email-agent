@@ -10,9 +10,12 @@ from pathlib import Path
 from claude_client import query_claude_sync, parse_json_response, ClaudeQueryError
 
 
-def classify_by_labels(item: dict) -> tuple[str, str] | None:
-    """Pre-classify items based on Gmail labels. Returns (category, summary) or None."""
-    # For threads, check the most recent message's labels
+def classify_by_labels(item: dict) -> str | None:
+    """Pre-classify category based on Gmail labels. Returns category or None.
+
+    Note: Only returns the category, not the summary. Claude is always used
+    for summaries to ensure quality.
+    """
     messages = item.get("messages", [])
     if not messages:
         return None
@@ -20,18 +23,81 @@ def classify_by_labels(item: dict) -> tuple[str, str] | None:
     # Use most recent message for label check
     email = messages[-1]
     labels = email.get("labels", "")
-    from_name = email.get("from_name", "Unknown")
-    subject = item.get("subject", email.get("subject", ""))
 
     if "CATEGORY_PROMOTIONS" in labels:
-        if item.get("is_thread"):
-            return ("NEWSLETTER", f"Marketing thread from {from_name} about {subject}")
-        return ("NEWSLETTER", f"Marketing email from {from_name} about {subject}")
+        return "NEWSLETTER"
     if "CATEGORY_UPDATES" in labels:
-        if item.get("is_thread"):
-            return ("AUTOMATED", f"Notification thread from {from_name}: {subject}")
-        return ("AUTOMATED", f"Notification from {from_name}: {subject}")
+        return "AUTOMATED"
     return None
+
+
+def summarize_email(email: dict) -> dict:
+    """Generate a summary for a single email using Claude."""
+    from_name = email.get("from_name", "Unknown")
+    subject = email.get("subject", "")
+    body = email.get("body_preview", "")[:1500]
+
+    prompt = f"""Summarize this email in ONE sentence. Focus on the key information or action.
+
+From: {from_name}
+Subject: {subject}
+Body:
+{body}
+
+Respond with ONLY the summary sentence, no quotes or prefix."""
+
+    try:
+        response_text, cost = query_claude_sync(prompt, timeout_seconds=60)
+        return {
+            "summary": response_text.strip(),
+            "cost_usd": cost
+        }
+    except (TimeoutError, ClaudeQueryError) as e:
+        print(f"  Warning: summary failed for '{subject[:30]}': {e}", file=sys.stderr)
+        return {
+            "summary": f"{from_name}: {subject}",
+            "cost_usd": 0.0
+        }
+
+
+def summarize_thread(item: dict) -> dict:
+    """Generate a summary for an email thread using Claude."""
+    messages = item.get("messages", [])
+    subject = item.get("subject", "")
+    participants = item.get("participants", [])
+
+    # Build thread content
+    thread_content = []
+    for msg in messages[-3:]:  # Last 3 messages for context
+        from_name = msg.get("from_name", "Unknown")
+        body = msg.get("body_preview", "")[:500]
+        thread_content.append(f"[{from_name}]: {body}")
+
+    combined = "\n---\n".join(thread_content)
+    if len(combined) > 2000:
+        combined = combined[:2000] + "..."
+
+    prompt = f"""Summarize this email thread in ONE sentence. Focus on the key topic and outcome.
+
+Subject: {subject}
+Participants: {', '.join(participants)}
+
+{combined}
+
+Respond with ONLY the summary sentence, no quotes or prefix."""
+
+    try:
+        response_text, cost = query_claude_sync(prompt, timeout_seconds=60)
+        return {
+            "summary": response_text.strip(),
+            "cost_usd": cost
+        }
+    except (TimeoutError, ClaudeQueryError) as e:
+        print(f"  Warning: summary failed for thread '{subject[:30]}': {e}", file=sys.stderr)
+        return {
+            "summary": f"{participants[0] if participants else 'Thread'}: {subject}",
+            "cost_usd": 0.0
+        }
 
 
 def classify_single_email(email: dict) -> dict:
@@ -160,7 +226,7 @@ def main():
     pre_classified = 0
     total_cost = 0.0
 
-    print(f"🏷️ Classifying {total} items (threads + single emails)...", file=sys.stderr)
+    print(f"🏷️ Classifying {total} items (threads + single emails)...", file=sys.stderr, flush=True)
 
     classified_items = []
 
@@ -181,18 +247,30 @@ def main():
             subject = email.get("subject", "")
             display = f"{email.get('from_name', 'Unknown')[:20]} - {subject[:30]}..."
 
-        # Try pre-classification by labels first
-        pre_result = classify_by_labels(item)
+        # Try pre-classification by labels first (category only)
+        pre_category = classify_by_labels(item)
 
-        if pre_result:
-            item["category"] = pre_result[0]
-            item["summary"] = pre_result[1]
-            item["action_items"] = None
+        if pre_category:
+            # Category from labels, but still need Claude for summary
             pre_classified += 1
-        else:
-            # Use Claude Agent SDK for classification
             needs_claude += 1
-            print(f"  [{needs_claude}] {display}", file=sys.stderr)
+            print(f"  [{needs_claude}] {display} (summarizing)", file=sys.stderr, flush=True)
+
+            item["category"] = pre_category
+            item["action_items"] = None
+
+            # Get summary from Claude
+            if is_thread:
+                summary_result = summarize_thread(item)
+            else:
+                summary_result = summarize_email(messages[0])
+
+            item["summary"] = summary_result["summary"]
+            total_cost += summary_result.get("cost_usd", 0.0)
+        else:
+            # Need Claude for both classification and summary
+            needs_claude += 1
+            print(f"  [{needs_claude}] {display} (classifying)", file=sys.stderr, flush=True)
 
             if is_thread:
                 result = classify_thread(item)
@@ -228,7 +306,8 @@ def main():
     single_count = sum(1 for i in classified_items if not i.get("is_thread"))
 
     print(f"\n📊 Classified {total} items ({thread_count} threads, {single_count} singles):", file=sys.stderr)
-    print(f"   Pre-classified: {pre_classified}, Claude SDK: {needs_claude}", file=sys.stderr)
+    print(f"   Category from labels: {pre_classified}, Full classification: {needs_claude - pre_classified}", file=sys.stderr)
+    print(f"   Claude SDK calls: {needs_claude}", file=sys.stderr)
     if total_cost > 0:
         print(f"   💰 Total cost: ${total_cost:.4f}", file=sys.stderr)
     for cat in ["URGENT", "NEEDS_RESPONSE", "CALENDAR", "FINANCIAL", "FYI", "NEWSLETTER", "AUTOMATED"]:

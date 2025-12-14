@@ -14,7 +14,8 @@ from claude_agent_sdk import (
 )
 
 # Default model for classification (fast, cheap)
-DEFAULT_MODEL = "claude-haiku-4-20250414"
+# Claude Haiku 4.5 - latest as of Oct 2025
+DEFAULT_MODEL = "claude-haiku-4-5"
 
 
 class ClaudeQueryError(Exception):
@@ -38,7 +39,7 @@ async def query_claude(
 
     Args:
         prompt: The prompt to send to Claude
-        model: Model to use (default: claude-haiku-4-20250414)
+        model: Model to use (default: claude-haiku-4-5)
         timeout_seconds: Timeout for the query
 
     Returns:
@@ -82,7 +83,7 @@ def query_claude_sync(
 
     Args:
         prompt: The prompt to send to Claude
-        model: Model to use (default: claude-haiku-4-20250414)
+        model: Model to use (default: claude-haiku-4-5)
         timeout_seconds: Timeout for the query
 
     Returns:
