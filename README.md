@@ -27,12 +27,22 @@ Generate a beautifully formatted HTML summary of your inbox, organized by catego
 ./generate-brief.sh --since=1mo  # Last month
 ```
 
+For more control and visible progress, use the direct pipeline:
+
+```bash
+./generate-brief-direct.sh --since 2d                    # Last 2 days
+./generate-brief-direct.sh --since 2d --concurrency 10   # Faster with more parallelism
+./generate-brief-direct.sh --since 2d --no-cache         # Force re-classification
+```
+
 Features:
-- Emails grouped into categories (Work, Finance, Travel, etc.)
+- Emails grouped into categories (Urgent, Needs Response, Financial, FYI, etc.)
 - Thread grouping (conversations shown as single items)
 - AI-generated one-line summaries
 - Direct links to open each email in Gmail
 - Collapsible sections for easy scanning
+- **Caching**: Previously classified emails are cached, making subsequent runs instant
+- **Parallel processing**: Multiple emails classified concurrently (default: 5)
 
 ### Natural Language Search
 Ask questions about your email archive and get synthesized answers with source citations.
@@ -69,8 +79,9 @@ Keep a local mirror of your Gmail using [Got Your Back (GYB)](https://github.com
 ├── generate-brief.sh            # Email brief generator
 ├── email-search.sh              # Natural language search
 ├── scripts/
+│   ├── cache_manager.py         # Classification cache (SQLite)
 │   ├── claude_client.py         # Claude Agent SDK client
-│   ├── classify_with_claude.py  # AI classification
+│   ├── classify_with_claude.py  # AI classification (parallel + cached)
 │   ├── email_search.py          # Search implementation
 │   ├── fetch_emails.py          # Fetch emails from SQLite
 │   ├── group_threads.py         # Group emails into threads
@@ -192,6 +203,7 @@ Current coverage: ~34% (focused on pure functions and business logic).
 ```
 tests/
 ├── conftest.py              # Shared fixtures
+├── test_cache_manager.py    # Cache operations
 ├── test_claude_client.py    # Claude SDK client
 ├── test_classify.py         # Classification logic
 ├── test_email_search.py     # Search functions
@@ -218,6 +230,23 @@ pass show API_KEYS/gyb-gmail-client-secrets > ~/bin/gyb/client_secrets.json
 ```bash
 bash <(curl -s -S -L https://git.io/gyb-install) -l
 ```
+
+## Cache Management
+
+Email classifications are cached in `~/MAIL/classification_cache.sqlite` to avoid redundant API calls. This makes subsequent brief generations much faster.
+
+```bash
+# View cache statistics
+uv run scripts/cache_manager.py stats
+
+# Clear the cache (force re-classification next time)
+uv run scripts/cache_manager.py clear
+
+# Generate brief without using cache
+./generate-brief-direct.sh --since 2d --no-cache
+```
+
+The cache key for threads includes all message IDs, so when a new message arrives in a thread, it will be re-classified with full context.
 
 ---
 

@@ -295,13 +295,48 @@ uv run scripts/cache_manager.py clear
 
 ---
 
-## Questions for Review
+## Implementation Notes (December 2025)
 
-1. **Cache location**: Add table to existing `msg-db.sqlite` or create new `cache.sqlite`?
-2. **Concurrency default**: Start with 5 or 10 concurrent requests?
-3. **Cache expiration**: Never expire (recommended) or add TTL?
-4. **Thread cache key**: Use sorted message_nums or thread_id string?
+### Decisions Made
+
+Based on review, the following decisions were made:
+
+1. **Cache location**: Created new `~/MAIL/classification_cache.sqlite` (separate from GYB's `msg-db.sqlite` to avoid any interference with the sync tool)
+
+2. **Concurrency default**: Started with 5 concurrent requests. Configurable via `--concurrency N` flag.
+
+3. **Cache expiration**: Never expire. Emails don't change after receipt, so cached summaries remain valid indefinitely. The `--no-cache` flag allows manual re-classification when needed.
+
+4. **Thread cache key**: Uses sorted message_nums (`thread:100-200-300`). When a new message arrives in a thread, the key changes, triggering a cache miss and re-classification with full context.
+
+### Files Created/Modified
+
+| File | Status | Description |
+|------|--------|-------------|
+| `scripts/cache_manager.py` | **New** | SQLite cache with `get_cache_key()`, `lookup_cache()`, `save_to_cache()`, `get_cache_stats()`, `clear_cache()` |
+| `tests/test_cache_manager.py` | **New** | 16 tests covering all cache operations |
+| `scripts/claude_client.py` | Modified | Added `query_claude_batch()` with semaphore-based rate limiting |
+| `scripts/classify_with_claude.py` | Modified | Complete async refactor with 5-phase architecture |
+| `generate-brief-direct.sh` | Modified | Added `--no-cache` and `--concurrency N` flags |
+
+### Architecture Changes
+
+The classification script now uses a 5-phase async architecture:
+
+1. **Cache Check**: Loop through all items, separate into cache hits and misses
+2. **Prompt Building**: Build prompts only for cache misses
+3. **Parallel Execution**: Process with `asyncio.gather()` and `Semaphore(N)`
+4. **Response Parsing**: Parse responses, save successful results to cache
+5. **Result Merging**: Combine cached + new results, clean up output
+
+### Error Handling
+
+- Batch function returns `(response, cost, metadata, error)` tuples
+- Errors don't abort the batch - partial success is possible
+- Failed items fall back to template summaries
+- All errors are logged to stderr
 
 ---
 
 *Design created: December 2025*
+*Implementation completed: December 2025*
