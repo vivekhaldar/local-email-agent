@@ -37,81 +37,31 @@ Report: "📄 Parsed N emails"
 
 ### Step 3: Classify and Summarize
 
-**CRITICAL: You MUST read and analyze the actual email body content to generate summaries. Do NOT just repeat the subject line.**
+Run the classification script which uses `claude -p` with Haiku model for each email:
 
-Read `/tmp/emails_parsed.json` and `/tmp/emails_raw.json` to get both content and labels.
-
-#### 3a. Pre-classify by Gmail labels
-
-Use labels to identify low-value emails:
-- Labels containing "CATEGORY_PROMOTIONS" → `NEWSLETTER`
-- Labels containing "CATEGORY_UPDATES" → `AUTOMATED`
-
-For NEWSLETTER/AUTOMATED emails, use brief template summaries.
-
-#### 3b. Analyze remaining emails
-
-For ALL other emails (not NEWSLETTER/AUTOMATED), you MUST analyze the email body and generate:
-
-1. **Category**: URGENT | NEEDS_RESPONSE | CALENDAR | FINANCIAL | FYI
-
-   **URGENT**: Explicit urgency words
-   - "urgent", "ASAP", "deadline", "by EOD", "action required", time-sensitive
-
-   **NEEDS_RESPONSE**: Awaiting your reply
-   - Direct questions, "please respond", "let me know", "what do you think"
-
-   **CALENDAR**: Events and scheduling
-   - Calendar invitations, event updates, meeting requests
-   - From: Google Calendar, calendar-notification@google.com
-   - Subject contains: "invitation:", "Updated invitation:", "event", "RSVP"
-
-   **FINANCIAL**: Money and accounts
-   - From banks, brokerages, financial institutions
-   - Senders: Chase, Ally, Vanguard, Fidelity, Schwab, Bank of America, Wells Fargo, Citibank, Capital One, American Express, etc.
-   - Subject contains: "statement", "bill", "payment", "balance", "deposit", "transfer", "account alert"
-
-   **FYI**: Everything else - informational, no action needed
-
-2. **Summary**: 1-2 sentences describing what the email is actually about
-   - ✅ GOOD: "Chase alerts that your checking account balance is below $500."
-   - ✅ GOOD: "Calendar invite from Nathan for 'Magic Demo' on Dec 16 at 10 AM PST."
-   - ❌ BAD: "Chase: Account Alert" (just repeating sender + subject)
-
-3. **Action items**: Any requests, deadlines, or actions (or null)
-
-Report: "🏷️ Classified N emails"
-
-### Step 4: Create Classified JSON
-
-Write to `/tmp/emails_classified.json`:
-
-```json
-{
-  "emails": [
-    {
-      "message_num": 123,
-      "uid": "abc123",
-      "gmail_link": "https://mail.google.com/mail/u/0/#all/abc123",
-      "from_name": "John Doe",
-      "from_email": "john@example.com",
-      "subject": "Q4 Budget Review",
-      "date": "2024-12-13 10:30:00",
-      "category": "NEEDS_RESPONSE",
-      "summary": "John is asking for your review of the Q4 budget proposal before Friday.",
-      "action_items": "Review budget proposal and respond by Friday"
-    }
-  ]
-}
+```bash
+cd ~/MAIL && uv run scripts/classify_with_claude.py \
+    --parsed /tmp/emails_parsed.json \
+    --raw /tmp/emails_raw.json \
+    --output /tmp/emails_classified.json
 ```
 
-### Step 5: Render HTML Brief
+This script:
+- Pre-classifies NEWSLETTER/AUTOMATED emails using Gmail labels (fast, no LLM)
+- Calls `claude -p --model haiku` for each remaining email to classify and summarize
+- Categories: URGENT, NEEDS_RESPONSE, CALENDAR, FINANCIAL, FYI, NEWSLETTER, AUTOMATED
+
+The script prints progress as it processes each email.
+
+Report the final stats from the script output.
+
+### Step 4: Render HTML Brief
 
 ```bash
 cd ~/MAIL && uv run scripts/render_brief.py --input /tmp/emails_classified.json --since "{DURATION_TEXT}"
 ```
 
-### Step 6: Final Report
+### Step 5: Final Report
 
 Print summary:
 
