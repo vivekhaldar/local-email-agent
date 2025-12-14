@@ -415,6 +415,31 @@ def strip_html_tags(text: str) -> str:
     return clean.strip()
 
 
+def format_answer_html(answer: str) -> str:
+    """Convert markdown in answer to HTML and linkify email references."""
+    # Convert markdown bold **text** to <strong>text</strong>
+    html = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", answer)
+
+    # Convert markdown italic *text* to <em>text</em> (but not inside URLs)
+    html = re.sub(r"(?<![:/])\*([^*]+)\*", r"<em>\1</em>", html)
+
+    # Linkify email references like "Email 1", "(Email 5)", "Emails 2, 3"
+    def linkify_email_ref(match):
+        text = match.group(0)
+        # Handle ranges like "Emails 2, 3" or "Emails 2-3"
+        if "Emails" in text:
+            nums = re.findall(r"\d+", text)
+            links = [f'<a href="#source-{n}" class="email-ref">Email {n}</a>' for n in nums]
+            return "Emails " + ", ".join(links).replace("Email ", "")
+        else:
+            num = re.search(r"\d+", text).group()
+            return f'<a href="#source-{num}" class="email-ref">Email {num}</a>'
+
+    html = re.sub(r"Emails?\s*\d+(?:\s*[,\-]\s*\d+)*", linkify_email_ref, html)
+
+    return html
+
+
 def render_html_results(query: str, results: list[dict], answer: str) -> Path:
     """Render search results to HTML file and return the path."""
     # Ensure output directory exists
@@ -438,10 +463,13 @@ def render_html_results(query: str, results: list[dict], answer: str) -> Path:
             "gmail_link": r["gmail_link"]
         })
 
+    # Format answer with HTML (bold, links to emails)
+    answer_html = format_answer_html(answer) if answer else ""
+
     # Generate HTML
     html = template.render(
         query=query,
-        answer=answer,
+        answer=answer_html,
         results=formatted_results,
         result_count=len(results),
         generated_at=datetime.now().strftime("%B %d, %Y at %I:%M %p")

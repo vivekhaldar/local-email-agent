@@ -220,6 +220,33 @@
       text-decoration: underline;
     }
 
+    /* Email reference links in answer */
+    .email-ref {
+      color: var(--accent-search);
+      text-decoration: none;
+      font-weight: 500;
+      padding: 0.1em 0.3em;
+      background: var(--accent-search-bg);
+      border-radius: 4px;
+      transition: background 0.15s ease;
+    }
+
+    .email-ref:hover {
+      background: #EDE9FE;
+      text-decoration: none;
+    }
+
+    /* Smooth scroll for anchor links */
+    html {
+      scroll-behavior: smooth;
+    }
+
+    /* Highlight target when jumped to */
+    .source-card:target {
+      border-color: var(--accent-search);
+      box-shadow: 0 0 0 3px var(--accent-search-bg);
+    }
+
     /* Footer */
     footer {
       margin-top: 3rem;
@@ -277,7 +304,7 @@
       </div>
       <div class="answer-content">
         {% for paragraph in answer.split('\n\n') %}
-        <p>{{ paragraph }}</p>
+        <p>{{ paragraph|safe }}</p>
         {% endfor %}
       </div>
     </div>
@@ -293,7 +320,7 @@
 
     <div class="sources-list">
       {% for result in results %}
-      <div class="source-card">
+      <div class="source-card" id="source-{{ loop.index }}">
         <div>
           <span class="source-number">{{ loop.index }}</span>
           <span class="source-sender">{{ result.from_name }}</span>
