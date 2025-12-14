@@ -57,31 +57,42 @@ echo ""
 # Run Claude in headless mode from ~/MAIL directory
 cd "$(dirname "$0")"
 
-# Build the prompt with full instructions
-PROMPT="Generate an email brief for the last $SINCE_TEXT.
+# Simple prompt that triggers the email-brief skill
+PROMPT="Generate an email brief for the last $SINCE_TEXT. Duration code: $SINCE"
 
-Step 1: Run this to fetch recent emails:
-uv run scripts/fetch_emails.py --since $SINCE --output /tmp/emails_raw.json
-
-Step 2: Read /tmp/emails_raw.json and for each email, parse its content by running:
-uv run scripts/parse_eml.py <filename>
-
-Step 3: Classify each email into one of: URGENT, NEEDS_RESPONSE, FYI, NEWSLETTER, AUTOMATED
-- URGENT: explicit urgency words, deadlines, time-sensitive
-- NEEDS_RESPONSE: questions, requests waiting for reply
-- FYI: informational, no action needed
-- NEWSLETTER: has CATEGORY_PROMOTIONS label
-- AUTOMATED: has CATEGORY_UPDATES label, notifications
-
-For each email, provide a 1-2 sentence summary and any action items.
-
-Step 4: Create /tmp/emails_classified.json with the classified emails in this format:
-{\"emails\": [{\"message_num\": N, \"uid\": \"...\", \"gmail_link\": \"...\", \"from_name\": \"...\", \"subject\": \"...\", \"date\": \"...\", \"category\": \"...\", \"summary\": \"...\", \"action_items\": \"...\"}]}
-
-Step 5: Render the HTML brief:
-uv run scripts/render_brief.py --input /tmp/emails_classified.json --since \"$SINCE_TEXT\"
-
-Step 6: Report the summary and the path to the generated brief."
-
-# Use --allowedTools to pre-approve the tools we need
-claude -p "$PROMPT" --allowedTools "Bash,Read,Write,Edit"
+# Run with stream-json for verbose updates, pre-approve tools
+# Parse the stream-json output to show progress
+claude -p "$PROMPT" \
+    --allowedTools "Bash,Read,Write,Edit" \
+    --output-format stream-json | while IFS= read -r line; do
+    # Extract and display relevant updates from the JSON stream
+    if echo "$line" | grep -q '"type":"assistant"'; then
+        # Extract text content from assistant messages
+        text=$(echo "$line" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if data.get('type') == 'assistant':
+        for block in data.get('message', {}).get('content', []):
+            if block.get('type') == 'text':
+                print(block.get('text', ''), end='')
+except: pass
+" 2>/dev/null)
+        if [ -n "$text" ]; then
+            echo "$text"
+        fi
+    elif echo "$line" | grep -q '"type":"tool_use"'; then
+        # Show tool usage
+        tool=$(echo "$line" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if data.get('type') == 'tool_use':
+        print(f\"⚙️  {data.get('name', 'tool')}...\")
+except: pass
+" 2>/dev/null)
+        if [ -n "$tool" ]; then
+            echo "$tool"
+        fi
+    fi
+done

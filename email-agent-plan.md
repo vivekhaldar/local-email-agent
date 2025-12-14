@@ -9,8 +9,8 @@
 - [x] `scripts/parse_eml.py` - Parses EML files, extracts headers and body text
 - [x] `scripts/render_brief.py` - Renders classified emails to HTML using Jinja2 template
 - [x] `templates/brief.html` - Responsive HTML template with category sections
-- [x] `.claude/commands/email-brief.md` - Project-local slash command for Claude
-- [x] `generate-brief.sh` - Entry point script with `--since` argument
+- [x] `.claude/skills/email-brief/SKILL.md` - Project-local skill (auto-triggered)
+- [x] `generate-brief.sh` - Entry point script with `--since` argument, streams progress
 - [x] `pyproject.toml` - Python project with jinja2 dependency
 
 **Usage:**
@@ -221,8 +221,9 @@ cd ~/MAIL
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│  Project-Local Skill: .claude/commands/email-brief.md   │
-│  (scoped to ~/MAIL, not global ~/.claude)               │
+│  Project-Local Skill: .claude/skills/email-brief/       │
+│  (scoped to ~/MAIL, auto-triggered by phrases like      │
+│   "generate email brief", "summarize my emails")        │
 │                                                         │
 │  Orchestrates the brief generation:                     │
 │  1. Calls Python scripts for data gathering             │
