@@ -1,0 +1,22 @@
+# Email data (large, private)
+gmail/
+briefs/
+
+# GYB credentials and tokens
+*.json
+!package.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
