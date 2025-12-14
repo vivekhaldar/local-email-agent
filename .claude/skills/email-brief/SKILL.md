@@ -19,69 +19,51 @@ Follow these steps precisely, reporting progress after each step:
 ### Step 1: Fetch Recent Emails
 
 ```bash
-uv run scripts/fetch_emails.py --since {DURATION} --output /tmp/emails_raw.json
+cd ~/MAIL && uv run scripts/fetch_emails.py --since {DURATION} --output /tmp/emails_raw.json
 ```
 
 Report: "📥 Found N emails in the last {duration}"
 
 ### Step 2: Parse Email Content
 
-Read `/tmp/emails_raw.json`. For each email, parse its content:
+Parse all emails using the batch parser:
 
 ```bash
-uv run scripts/parse_eml.py {filename}
+cd ~/MAIL && uv run scripts/parse_eml.py --batch /tmp/emails_raw.json --output /tmp/emails_parsed.json
 ```
 
-Process in batches of 10-20. Report progress: "📄 Parsing emails... (N/total)"
+Report: "📄 Parsed N emails"
 
 ### Step 3: Classify and Summarize
 
 **CRITICAL: You MUST read and analyze the actual email body content to generate summaries. Do NOT just repeat the subject line.**
 
+Read `/tmp/emails_parsed.json` and `/tmp/emails_raw.json` to get both content and labels.
+
 #### 3a. Pre-classify by Gmail labels
 
-First, use labels to identify low-value emails:
+Use labels to identify low-value emails:
 - Labels containing "CATEGORY_PROMOTIONS" → `NEWSLETTER`
 - Labels containing "CATEGORY_UPDATES" → `AUTOMATED`
 
-For NEWSLETTER/AUTOMATED emails, use template summaries:
-- NEWSLETTER: "Marketing email from [sender] about [topic from subject]"
-- AUTOMATED: "Notification from [sender]: [brief description]"
+For NEWSLETTER/AUTOMATED emails, use brief template summaries.
 
-#### 3b. LLM-based classification for remaining emails
+#### 3b. Analyze remaining emails
 
-For ALL other emails (not NEWSLETTER/AUTOMATED), you MUST:
+For ALL other emails (not NEWSLETTER/AUTOMATED), you MUST analyze the email body and generate:
 
-1. **Read the email body** from the parsed content
-2. **Send to LLM** with this prompt for each email (or batch 5-10 together):
+1. **Category**: URGENT | NEEDS_RESPONSE | FYI
+   - URGENT: "urgent", "ASAP", "deadline", "by EOD", "action required"
+   - NEEDS_RESPONSE: Direct questions, "please respond", "let me know"
+   - FYI: Everything else
 
-```
-Analyze this email and provide:
-1. Category: URGENT | NEEDS_RESPONSE | FYI
-2. Summary: 1-2 sentences describing what this email is actually about (NOT just the subject line)
-3. Action items: Any requests, deadlines, or required actions (or null)
+2. **Summary**: 1-2 sentences describing what the email is actually about
+   - ✅ GOOD: "Sarah is asking for feedback on the new homepage design mockups before the client meeting on Monday."
+   - ❌ BAD: "Sarah: New homepage design" (just repeating sender + subject)
 
-URGENT signals: "urgent", "ASAP", "deadline", "by EOD", "action required", time-sensitive requests
-NEEDS_RESPONSE signals: Direct questions, "please respond", "let me know", "what do you think"
-FYI: Everything else - informational, announcements, updates
+3. **Action items**: Any requests, deadlines, or actions (or null)
 
-Email:
-From: {from_name} <{from_email}>
-Subject: {subject}
-Body:
-{body_preview}
-```
-
-3. **Use the LLM response** for the summary - it must reflect the actual email content
-
-#### Summary quality requirements
-
-- ✅ GOOD: "Sarah is asking for feedback on the new homepage design mockups before the client meeting on Monday."
-- ✅ GOOD: "Weekly team standup notes covering sprint progress, blockers on the API migration, and holiday schedule."
-- ❌ BAD: "Sarah: New homepage design" (just repeating sender + subject)
-- ❌ BAD: "Team Update: Weekly standup notes" (just repeating subject)
-
-Report progress: "🏷️ Classifying emails... (N/total)"
+Report: "🏷️ Classified N emails"
 
 ### Step 4: Create Classified JSON
 
@@ -109,7 +91,7 @@ Write to `/tmp/emails_classified.json`:
 ### Step 5: Render HTML Brief
 
 ```bash
-uv run scripts/render_brief.py --input /tmp/emails_classified.json --since "{DURATION_TEXT}"
+cd ~/MAIL && uv run scripts/render_brief.py --input /tmp/emails_classified.json --since "{DURATION_TEXT}"
 ```
 
 ### Step 6: Final Report

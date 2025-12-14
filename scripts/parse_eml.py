@@ -162,22 +162,51 @@ def main():
     )
     parser.add_argument(
         "--batch",
-        action="store_true",
-        help="Read JSON array of filenames from stdin"
+        help="JSON file with emails to parse (from fetch_emails.py output)"
+    )
+    parser.add_argument(
+        "--output",
+        help="Output file for batch results (default: stdout)"
     )
     args = parser.parse_args()
 
     if args.batch:
-        # Read JSON from stdin
-        input_data = json.load(sys.stdin)
-        filenames = input_data if isinstance(input_data, list) else input_data.get("filenames", [])
+        # Read JSON from file
+        with open(args.batch) as f:
+            input_data = json.load(f)
+
+        # Handle both formats: list of filenames or {emails: [...]} from fetch_emails.py
+        if isinstance(input_data, list):
+            emails = input_data
+        elif "emails" in input_data:
+            emails = input_data["emails"]
+        else:
+            emails = input_data.get("filenames", [])
 
         results = []
-        for filename in filenames:
-            filepath = GMAIL_DIR / filename
-            results.append(parse_eml(filepath))
+        for item in emails:
+            # Support both string filenames and email objects with 'filename' key
+            if isinstance(item, str):
+                filename = item
+                message_num = None
+            else:
+                filename = item.get("filename", "")
+                message_num = item.get("message_num")
 
-        print(json.dumps(results, indent=2))
+            filepath = GMAIL_DIR / filename
+            result = parse_eml(filepath)
+            if message_num is not None:
+                result["message_num"] = message_num
+            results.append(result)
+
+        output_json = json.dumps(results, indent=2)
+        if args.output:
+            with open(args.output, "w") as f:
+                f.write(output_json)
+            print(f"Parsed {len(results)} emails to {args.output}", file=sys.stderr)
+        else:
+            print(output_json)
+
     elif args.eml_file:
         # Parse single file
         filepath = Path(args.eml_file)
