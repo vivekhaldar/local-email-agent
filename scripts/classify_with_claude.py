@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 # ABOUTME: Classify emails/threads using Claude Agent SDK with haiku model
-# ABOUTME: Usage: uv run scripts/classify_with_claude.py --grouped emails_grouped.json --output emails_classified.json
+# ABOUTME: Supports caching and parallel processing for performance
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
 
-from claude_client import query_claude_sync, parse_json_response, ClaudeQueryError
+from claude_client import (
+    query_claude_batch,
+    parse_json_response,
+    ClaudeQueryError,
+    DEFAULT_MODEL,
+)
+from cache_manager import get_cache_key, lookup_cache, save_to_cache, init_cache_db
 
 
 def classify_by_labels(item: dict) -> str | None:
@@ -31,13 +38,41 @@ def classify_by_labels(item: dict) -> str | None:
     return None
 
 
-def summarize_email(email: dict) -> dict:
-    """Generate a summary for a single email using Claude."""
-    from_name = email.get("from_name", "Unknown")
-    subject = email.get("subject", "")
-    body = email.get("body_preview", "")[:1500]
+def build_summarize_prompt(item: dict) -> str:
+    """Build a summary-only prompt for an item (when category is known from labels)."""
+    is_thread = item.get("is_thread", False)
+    messages = item.get("messages", [])
 
-    prompt = f"""Summarize this email in ONE sentence. Focus on the key information or action.
+    if is_thread:
+        subject = item.get("subject", "")
+        participants = item.get("participants", [])
+
+        # Build thread content
+        thread_content = []
+        for msg in messages[-3:]:  # Last 3 messages for context
+            from_name = msg.get("from_name", "Unknown")
+            body = msg.get("body_preview", "")[:500]
+            thread_content.append(f"[{from_name}]: {body}")
+
+        combined = "\n---\n".join(thread_content)
+        if len(combined) > 2000:
+            combined = combined[:2000] + "..."
+
+        return f"""Summarize this email thread in ONE sentence. Focus on the key topic and outcome.
+
+Subject: {subject}
+Participants: {', '.join(participants)}
+
+{combined}
+
+Respond with ONLY the summary sentence, no quotes or prefix."""
+    else:
+        email = messages[0]
+        from_name = email.get("from_name", "Unknown")
+        subject = email.get("subject", "")
+        body = email.get("body_preview", "")[:1500]
+
+        return f"""Summarize this email in ONE sentence. Focus on the key information or action.
 
 From: {from_name}
 Subject: {subject}
@@ -46,109 +81,30 @@ Body:
 
 Respond with ONLY the summary sentence, no quotes or prefix."""
 
-    try:
-        response_text, cost = query_claude_sync(prompt, timeout_seconds=60)
-        return {
-            "summary": response_text.strip(),
-            "cost_usd": cost
-        }
-    except (TimeoutError, ClaudeQueryError) as e:
-        print(f"  Warning: summary failed for '{subject[:30]}': {e}", file=sys.stderr)
-        return {
-            "summary": f"{from_name}: {subject}",
-            "cost_usd": 0.0
-        }
 
-
-def summarize_thread(item: dict) -> dict:
-    """Generate a summary for an email thread using Claude."""
+def build_classify_prompt(item: dict) -> str:
+    """Build a full classification prompt for an item."""
+    is_thread = item.get("is_thread", False)
     messages = item.get("messages", [])
-    subject = item.get("subject", "")
-    participants = item.get("participants", [])
 
-    # Build thread content
-    thread_content = []
-    for msg in messages[-3:]:  # Last 3 messages for context
-        from_name = msg.get("from_name", "Unknown")
-        body = msg.get("body_preview", "")[:500]
-        thread_content.append(f"[{from_name}]: {body}")
+    if is_thread:
+        subject = item.get("subject", "")
+        participants = item.get("participants", [])
+        message_count = len(messages)
 
-    combined = "\n---\n".join(thread_content)
-    if len(combined) > 2000:
-        combined = combined[:2000] + "..."
+        # Build thread content (chronological order, truncate each message)
+        thread_content = []
+        for i, msg in enumerate(messages):
+            from_name = msg.get("from_name", "Unknown")
+            date = msg.get("date", "")[:20]
+            body = msg.get("body_preview", "")[:800]
+            thread_content.append(f"[Message {i+1} - From: {from_name}, Date: {date}]\n{body}")
 
-    prompt = f"""Summarize this email thread in ONE sentence. Focus on the key topic and outcome.
+        combined = "\n\n---\n\n".join(thread_content)
+        if len(combined) > 4000:
+            combined = combined[:4000] + "\n...[truncated]"
 
-Subject: {subject}
-Participants: {', '.join(participants)}
-
-{combined}
-
-Respond with ONLY the summary sentence, no quotes or prefix."""
-
-    try:
-        response_text, cost = query_claude_sync(prompt, timeout_seconds=60)
-        return {
-            "summary": response_text.strip(),
-            "cost_usd": cost
-        }
-    except (TimeoutError, ClaudeQueryError) as e:
-        print(f"  Warning: summary failed for thread '{subject[:30]}': {e}", file=sys.stderr)
-        return {
-            "summary": f"{participants[0] if participants else 'Thread'}: {subject}",
-            "cost_usd": 0.0
-        }
-
-
-def classify_single_email(email: dict) -> dict:
-    """Call claude CLI to classify and summarize a single email."""
-    from_name = email.get("from_name", "Unknown")
-    from_email = email.get("from_email", "")
-    subject = email.get("subject", "")
-    body = email.get("body_preview", "")[:2000]
-
-    prompt = f"""Classify this email and provide a JSON response.
-
-EMAIL:
-From: {from_name} <{from_email}>
-Subject: {subject}
-Body:
-{body}
-
-CLASSIFICATION RULES:
-- URGENT: Contains "urgent", "ASAP", "deadline", "by EOD", "action required", time-sensitive
-- NEEDS_RESPONSE: Direct questions to recipient, "please respond", "let me know", "what do you think"
-- CALENDAR: Calendar invitations, event updates, meeting requests, from Google Calendar
-- FINANCIAL: From banks/brokerages (Chase, Ally, Vanguard, Fidelity, etc.), bills, statements, balance alerts
-- FYI: Everything else - informational, no action needed
-
-Respond with ONLY this JSON (no markdown, no explanation):
-{{"category": "CATEGORY", "summary": "1-2 sentence summary of actual content", "action_items": "any actions needed or null"}}"""
-
-    return _call_claude(prompt, subject, from_name)
-
-
-def classify_thread(item: dict) -> dict:
-    """Call claude CLI to classify and summarize an email thread."""
-    messages = item.get("messages", [])
-    subject = item.get("subject", "")
-    participants = item.get("participants", [])
-    message_count = len(messages)
-
-    # Build thread content (chronological order, truncate each message)
-    thread_content = []
-    for i, msg in enumerate(messages):
-        from_name = msg.get("from_name", "Unknown")
-        date = msg.get("date", "")[:20]  # Truncate date for brevity
-        body = msg.get("body_preview", "")[:800]  # Shorter per message in thread
-        thread_content.append(f"[Message {i+1} - From: {from_name}, Date: {date}]\n{body}")
-
-    # Limit total thread content
-    combined = "\n\n---\n\n".join(thread_content)
-    if len(combined) > 4000:
-        combined = combined[:4000] + "\n...[truncated]"
-
-    prompt = f"""Classify this email thread and provide a JSON response.
+        return f"""Classify this email thread and provide a JSON response.
 
 EMAIL THREAD: "{subject}"
 Participants: {', '.join(participants)}
@@ -167,131 +123,230 @@ Summarize the ENTIRE conversation (not just the last message). What is this thre
 
 Respond with ONLY this JSON (no markdown, no explanation):
 {{"category": "CATEGORY", "summary": "1-2 sentence summary of the conversation", "action_items": "any actions needed or null"}}"""
+    else:
+        email = messages[0]
+        from_name = email.get("from_name", "Unknown")
+        from_email = email.get("from_email", "")
+        subject = email.get("subject", "")
+        body = email.get("body_preview", "")[:2000]
 
-    return _call_claude(prompt, subject, participants[0] if participants else "Unknown")
+        return f"""Classify this email and provide a JSON response.
+
+EMAIL:
+From: {from_name} <{from_email}>
+Subject: {subject}
+Body:
+{body}
+
+CLASSIFICATION RULES:
+- URGENT: Contains "urgent", "ASAP", "deadline", "by EOD", "action required", time-sensitive
+- NEEDS_RESPONSE: Direct questions to recipient, "please respond", "let me know", "what do you think"
+- CALENDAR: Calendar invitations, event updates, meeting requests, from Google Calendar
+- FINANCIAL: From banks/brokerages (Chase, Ally, Vanguard, Fidelity, etc.), bills, statements, balance alerts
+- FYI: Everything else - informational, no action needed
+
+Respond with ONLY this JSON (no markdown, no explanation):
+{{"category": "CATEGORY", "summary": "1-2 sentence summary of actual content", "action_items": "any actions needed or null"}}"""
 
 
-def _call_claude(prompt: str, subject: str, fallback_name: str, max_retries: int = 2) -> dict:
-    """Call Claude Agent SDK with the given prompt and return parsed result.
+def get_fallback_info(item: dict) -> tuple[str, str]:
+    """Get fallback name and subject for an item."""
+    is_thread = item.get("is_thread", False)
+    messages = item.get("messages", [])
 
-    Retries on transient failures (empty responses, parse errors) up to max_retries times.
-    """
-    last_error = None
-    total_cost = 0.0
+    if is_thread:
+        subject = item.get("subject", "")
+        participants = item.get("participants", [])
+        fallback_name = participants[0] if participants else "Thread"
+    else:
+        email = messages[0] if messages else {}
+        subject = email.get("subject", "")
+        fallback_name = email.get("from_name", "Unknown")
 
-    for attempt in range(max_retries):
+    return fallback_name, subject
+
+
+def parse_classification_response(
+    response_text: str,
+    fallback_name: str,
+    subject: str,
+    is_summary_only: bool = False,
+    pre_category: str | None = None
+) -> dict:
+    """Parse a classification or summary response from Claude."""
+    if is_summary_only:
+        # Summary-only response is just plain text
+        summary = response_text.strip() if response_text else f"{fallback_name}: {subject}"
+        return {
+            "category": pre_category or "FYI",
+            "summary": summary,
+            "action_items": None
+        }
+    else:
+        # Full classification response is JSON
         try:
-            response_text, cost = query_claude_sync(prompt, timeout_seconds=90)
-            total_cost += cost
             parsed = parse_json_response(response_text)
-
             return {
                 "category": parsed.get("category", "FYI").upper(),
                 "summary": parsed.get("summary", f"{fallback_name}: {subject}"),
-                "action_items": parsed.get("action_items"),
-                "cost_usd": total_cost
+                "action_items": parsed.get("action_items")
             }
-
-        except TimeoutError:
-            print(f"  Warning: timeout for '{subject[:40]}...'", file=sys.stderr)
+        except ValueError:
             return {
                 "category": "FYI",
                 "summary": f"{fallback_name}: {subject}",
-                "action_items": None,
-                "cost_usd": total_cost
+                "action_items": None
             }
-        except ValueError as e:
-            last_error = e
-            if attempt < max_retries - 1:
-                print(f"  Retry {attempt + 1}/{max_retries - 1} for '{subject[:30]}...' ({e})", file=sys.stderr)
-                continue
-        except ClaudeQueryError as e:
-            last_error = e
-            if attempt < max_retries - 1:
-                print(f"  Retry {attempt + 1}/{max_retries - 1} for '{subject[:30]}...' ({e})", file=sys.stderr)
-                continue
 
-    # All retries exhausted
-    print(f"  Warning: failed after {max_retries} attempts for '{subject[:40]}...': {last_error}", file=sys.stderr)
-    return {
-        "category": "FYI",
-        "summary": f"{fallback_name}: {subject}",
-        "action_items": None,
-        "cost_usd": total_cost
+
+async def classify_items_parallel(
+    items: list[dict],
+    use_cache: bool = True,
+    max_concurrent: int = 5,
+) -> tuple[list[dict], dict]:
+    """Classify items using cache and parallel processing.
+
+    Returns:
+        Tuple of (classified_items, stats_dict)
+    """
+    stats = {
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "claude_calls": 0,
+        "total_cost": 0.0,
+        "pre_classified": 0,
     }
 
+    # Initialize cache if using it
+    if use_cache:
+        init_cache_db()
 
-def main():
-    parser = argparse.ArgumentParser(description="Classify emails/threads using Claude Agent SDK")
-    parser.add_argument("--grouped", required=True, help="Grouped emails JSON file (from group_threads.py)")
-    parser.add_argument("--output", required=True, help="Output classified JSON file")
-    args = parser.parse_args()
+    # Phase 1: Check cache and prepare items
+    cache_hits = []  # Items with cached results
+    needs_processing = []  # Items that need Claude
 
-    # Load grouped items
-    with open(args.grouped) as f:
-        grouped_data = json.load(f)
-
-    items = grouped_data.get("items", [])
-    total = len(items)
-    needs_claude = 0
-    pre_classified = 0
-    total_cost = 0.0
-
-    print(f"🏷️ Classifying {total} items (threads + single emails)...", file=sys.stderr, flush=True)
-
-    classified_items = []
-
-    for i, item in enumerate(items):
-        is_thread = item.get("is_thread", False)
+    for item in items:
         messages = item.get("messages", [])
-
         if not messages:
             continue
 
-        # Build display info
-        if is_thread:
-            subject = item.get("subject", "")
-            participants = item.get("participants", [])
-            display = f"Thread: {participants[0] if participants else 'Unknown'} - {subject[:30]}..."
-        else:
-            email = messages[0]
-            subject = email.get("subject", "")
-            display = f"{email.get('from_name', 'Unknown')[:20]} - {subject[:30]}..."
+        cache_key = get_cache_key(item)
 
-        # Try pre-classification by labels first (category only)
+        # Check cache first
+        if use_cache and cache_key:
+            cached = lookup_cache(cache_key)
+            if cached:
+                item["category"] = cached["category"]
+                item["summary"] = cached["summary"]
+                item["action_items"] = cached["action_items"]
+                stats["cache_hits"] += 1
+                cache_hits.append(item)
+                continue
+
+        # Not in cache - check if we can pre-classify category
         pre_category = classify_by_labels(item)
+        if pre_category:
+            stats["pre_classified"] += 1
+
+        needs_processing.append({
+            "item": item,
+            "cache_key": cache_key,
+            "pre_category": pre_category,
+        })
+        stats["cache_misses"] += 1
+
+    # Phase 2: Build prompts for items needing processing
+    prompts = []
+    for entry in needs_processing:
+        item = entry["item"]
+        pre_category = entry["pre_category"]
 
         if pre_category:
-            # Category from labels, but still need Claude for summary
-            pre_classified += 1
-            needs_claude += 1
-            print(f"  [{needs_claude}] {display} (summarizing)", file=sys.stderr, flush=True)
-
-            item["category"] = pre_category
-            item["action_items"] = None
-
-            # Get summary from Claude
-            if is_thread:
-                summary_result = summarize_thread(item)
-            else:
-                summary_result = summarize_email(messages[0])
-
-            item["summary"] = summary_result["summary"]
-            total_cost += summary_result.get("cost_usd", 0.0)
+            # Only need summary
+            prompt = build_summarize_prompt(item)
         else:
-            # Need Claude for both classification and summary
-            needs_claude += 1
-            print(f"  [{needs_claude}] {display} (classifying)", file=sys.stderr, flush=True)
+            # Need full classification
+            prompt = build_classify_prompt(item)
 
+        metadata = {
+            "index": items.index(item),
+            "cache_key": entry["cache_key"],
+            "pre_category": pre_category,
+            "item": item,
+        }
+        prompts.append((prompt, metadata))
+
+    # Phase 3: Process in parallel
+    if prompts:
+        total_prompts = len(prompts)
+        print(f"🏷️  Processing {total_prompts} items ({stats['cache_hits']} from cache)...", file=sys.stderr, flush=True)
+
+        def progress_callback(completed: int, total: int, metadata: dict):
+            item = metadata["item"]
+            is_thread = item.get("is_thread", False)
             if is_thread:
-                result = classify_thread(item)
+                subject = item.get("subject", "")[:30]
+                display = f"Thread: {subject}..."
             else:
-                result = classify_single_email(messages[0])
+                messages = item.get("messages", [])
+                email = messages[0] if messages else {}
+                subject = email.get("subject", "")[:30]
+                from_name = email.get("from_name", "Unknown")[:15]
+                display = f"{from_name}: {subject}..."
+            print(f"  [{completed}/{total}] {display}", file=sys.stderr, flush=True)
 
-            item["category"] = result["category"]
-            item["summary"] = result["summary"]
-            item["action_items"] = result["action_items"]
-            total_cost += result.get("cost_usd", 0.0)
+        results = await query_claude_batch(
+            prompts,
+            max_concurrent=max_concurrent,
+            timeout_seconds=90,
+            progress_callback=progress_callback,
+        )
+        stats["claude_calls"] = len(prompts)
+
+        # Phase 4: Parse responses and update items
+        for response_text, cost, metadata, error in results:
+            item = metadata["item"]
+            cache_key = metadata["cache_key"]
+            pre_category = metadata["pre_category"]
+            fallback_name, subject = get_fallback_info(item)
+
+            stats["total_cost"] += cost
+
+            if error:
+                print(f"  Warning: error for '{subject[:30]}...': {error}", file=sys.stderr)
+                item["category"] = pre_category or "FYI"
+                item["summary"] = f"{fallback_name}: {subject}"
+                item["action_items"] = None
+            else:
+                result = parse_classification_response(
+                    response_text,
+                    fallback_name,
+                    subject,
+                    is_summary_only=(pre_category is not None),
+                    pre_category=pre_category,
+                )
+                item["category"] = result["category"]
+                item["summary"] = result["summary"]
+                item["action_items"] = result["action_items"]
+
+                # Save to cache
+                if use_cache and cache_key:
+                    save_to_cache(
+                        cache_key=cache_key,
+                        category=item["category"],
+                        summary=item["summary"],
+                        action_items=item["action_items"],
+                        cost_usd=cost,
+                    )
+    else:
+        print(f"🏷️  All {stats['cache_hits']} items found in cache!", file=sys.stderr, flush=True)
+
+    # Phase 5: Combine results (cache hits + processed)
+    classified_items = []
+    for item in items:
+        messages = item.get("messages", [])
+        if not messages:
+            continue
 
         # Clean up messages (remove body_preview, labels from output)
         for msg in messages:
@@ -302,6 +357,35 @@ def main():
             msg.pop("body_length", None)
 
         classified_items.append(item)
+
+    return classified_items, stats
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Classify emails/threads using Claude Agent SDK")
+    parser.add_argument("--grouped", required=True, help="Grouped emails JSON file (from group_threads.py)")
+    parser.add_argument("--output", required=True, help="Output classified JSON file")
+    parser.add_argument("--no-cache", action="store_true", help="Disable caching (re-classify everything)")
+    parser.add_argument("--concurrency", type=int, default=5, help="Max concurrent Claude requests (default: 5)")
+    args = parser.parse_args()
+
+    # Load grouped items
+    with open(args.grouped) as f:
+        grouped_data = json.load(f)
+
+    items = grouped_data.get("items", [])
+    total = len(items)
+
+    print(f"🏷️ Classifying {total} items (threads + single emails)...", file=sys.stderr, flush=True)
+
+    # Run async classification
+    classified_items, stats = asyncio.run(
+        classify_items_parallel(
+            items,
+            use_cache=not args.no_cache,
+            max_concurrent=args.concurrency,
+        )
+    )
 
     # Write output
     with open(args.output, "w") as f:
@@ -317,10 +401,11 @@ def main():
     single_count = sum(1 for i in classified_items if not i.get("is_thread"))
 
     print(f"\n📊 Classified {total} items ({thread_count} threads, {single_count} singles):", file=sys.stderr)
-    print(f"   Category from labels: {pre_classified}, Full classification: {needs_claude - pre_classified}", file=sys.stderr)
-    print(f"   Claude SDK calls: {needs_claude}", file=sys.stderr)
-    if total_cost > 0:
-        print(f"   💰 Total cost: ${total_cost:.4f}", file=sys.stderr)
+    print(f"   Cache hits: {stats['cache_hits']}, Cache misses: {stats['cache_misses']}", file=sys.stderr)
+    print(f"   Category from labels: {stats['pre_classified']}", file=sys.stderr)
+    print(f"   Claude SDK calls: {stats['claude_calls']} (concurrency: {args.concurrency})", file=sys.stderr)
+    if stats["total_cost"] > 0:
+        print(f"   💰 Total cost: ${stats['total_cost']:.4f}", file=sys.stderr)
     for cat in ["URGENT", "NEEDS_RESPONSE", "CALENDAR", "FINANCIAL", "FYI", "NEWSLETTER", "AUTOMATED"]:
         if cat in categories:
             print(f"   {cat}: {categories[cat]}", file=sys.stderr)

@@ -73,6 +73,49 @@ async def query_claude(
     return response_text, cost
 
 
+async def query_claude_batch(
+    prompts: list[tuple[str, dict]],
+    model: str = DEFAULT_MODEL,
+    max_concurrent: int = 5,
+    timeout_seconds: int = 90,
+    progress_callback: callable = None,
+) -> list[tuple[str, float, dict, Exception | None]]:
+    """
+    Process multiple prompts concurrently with rate limiting.
+
+    Args:
+        prompts: List of (prompt_text, metadata) tuples
+        model: Model to use for all queries
+        max_concurrent: Maximum concurrent requests (default: 5)
+        timeout_seconds: Timeout per query
+        progress_callback: Optional callback(completed, total, metadata) for progress
+
+    Returns:
+        List of (response_text, cost_usd, metadata, error) tuples.
+        error is None on success, Exception on failure.
+    """
+    semaphore = asyncio.Semaphore(max_concurrent)
+    completed = 0
+
+    async def process_one(prompt: str, metadata: dict) -> tuple[str, float, dict, Exception | None]:
+        nonlocal completed
+        async with semaphore:
+            try:
+                response_text, cost = await query_claude(prompt, model, timeout_seconds)
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(prompts), metadata)
+                return (response_text, cost, metadata, None)
+            except Exception as e:
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(prompts), metadata)
+                return ("", 0.0, metadata, e)
+
+    tasks = [process_one(prompt, meta) for prompt, meta in prompts]
+    return await asyncio.gather(*tasks)
+
+
 def query_claude_sync(
     prompt: str,
     model: str = DEFAULT_MODEL,

@@ -6,8 +6,10 @@ set -e
 
 cd "$(dirname "$0")"
 
-# Default: last 24 hours
+# Defaults
 SINCE="1d"
+NO_CACHE=""
+CONCURRENCY="5"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -16,14 +18,24 @@ while [[ $# -gt 0 ]]; do
             SINCE="$2"
             shift 2
             ;;
+        --no-cache)
+            NO_CACHE="--no-cache"
+            shift
+            ;;
+        --concurrency)
+            CONCURRENCY="$2"
+            shift 2
+            ;;
         -h|--help)
-            echo "Usage: $0 [--since <duration>]"
+            echo "Usage: $0 [--since <duration>] [--no-cache] [--concurrency N]"
             echo ""
             echo "Generate an email brief by running the Python pipeline directly."
             echo "This is faster and shows more progress output than generate-brief.sh"
             echo ""
             echo "Options:"
-            echo "  --since <duration>  How far back to look (default: 1d)"
+            echo "  --since <duration>   How far back to look (default: 1d)"
+            echo "  --no-cache           Disable caching (re-classify everything)"
+            echo "  --concurrency N      Max concurrent Claude requests (default: 5)"
             echo ""
             echo "Duration formats: 1h, 12h, 1d, 2d, 7d, 1w, 2w, 1mo"
             exit 0
@@ -69,7 +81,7 @@ echo ""
 
 # Step 4: Classify with Claude (this is the slow part - shows progress)
 echo "🏷️  Step 4/5: Classifying with Claude..."
-uv run scripts/classify_with_claude.py --grouped="$TEMP_DIR/emails_grouped.json" --output="$TEMP_DIR/emails_classified.json"
+uv run scripts/classify_with_claude.py --grouped="$TEMP_DIR/emails_grouped.json" --output="$TEMP_DIR/emails_classified.json" $NO_CACHE --concurrency="$CONCURRENCY"
 echo ""
 
 # Step 5: Render HTML
