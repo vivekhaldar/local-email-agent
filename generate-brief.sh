@@ -64,6 +64,7 @@ PROMPT="Generate an email brief for the last $SINCE_TEXT. Duration code: $SINCE"
 # Parse the stream-json output to show progress
 claude -p "$PROMPT" \
     --allowedTools "Bash,Read,Write,Edit" \
+    --verbose \
     --output-format stream-json | while IFS= read -r line; do
     # Extract and display relevant updates from the JSON stream
     if echo "$line" | grep -q '"type":"assistant"'; then
