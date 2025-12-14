@@ -291,31 +291,29 @@
     }
 
     .email-content {
-      padding: 0 1rem 1rem 1.75rem;
+      padding: 0.75rem 1rem 1rem 1.75rem;
       border-top: 1px solid var(--border-light);
-    }
-
-    .email-subject-full {
-      margin-top: 0.75rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .email-subject-full a {
-      font-weight: 600;
-      font-size: 0.95rem;
-      color: var(--text-primary);
-      text-decoration: none;
-      transition: color 0.1s ease;
-    }
-
-    .email-subject-full a:hover {
-      color: var(--accent-fyi);
     }
 
     .email-summary {
       font-size: 0.9rem;
       line-height: 1.6;
       color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+
+    .email-link {
+      display: inline-block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent-fyi);
+      text-decoration: none;
+      margin-top: 0.5rem;
+      transition: opacity 0.1s ease;
+    }
+
+    .email-link:hover {
+      opacity: 0.7;
     }
 
     .email-action {
@@ -454,15 +452,13 @@
                 </svg>
               </summary>
               <div class="email-content">
-                <div class="email-subject-full">
-                  <a href="{{ email.gmail_link }}" target="_blank">{{ email.subject }}</a>
-                </div>
                 {% if email.summary %}
                 <p class="email-summary">{{ email.summary }}</p>
                 {% endif %}
                 {% if email.action_items %}
                 <div class="email-action">{{ email.action_items }}</div>
                 {% endif %}
+                <a class="email-link" href="{{ email.gmail_link }}" target="_blank">Open in Gmail →</a>
               </div>
             </details>
             {% endfor %}
