@@ -53,14 +53,30 @@ For NEWSLETTER/AUTOMATED emails, use brief template summaries.
 
 For ALL other emails (not NEWSLETTER/AUTOMATED), you MUST analyze the email body and generate:
 
-1. **Category**: URGENT | NEEDS_RESPONSE | FYI
-   - URGENT: "urgent", "ASAP", "deadline", "by EOD", "action required"
-   - NEEDS_RESPONSE: Direct questions, "please respond", "let me know"
-   - FYI: Everything else
+1. **Category**: URGENT | NEEDS_RESPONSE | CALENDAR | FINANCIAL | FYI
+
+   **URGENT**: Explicit urgency words
+   - "urgent", "ASAP", "deadline", "by EOD", "action required", time-sensitive
+
+   **NEEDS_RESPONSE**: Awaiting your reply
+   - Direct questions, "please respond", "let me know", "what do you think"
+
+   **CALENDAR**: Events and scheduling
+   - Calendar invitations, event updates, meeting requests
+   - From: Google Calendar, calendar-notification@google.com
+   - Subject contains: "invitation:", "Updated invitation:", "event", "RSVP"
+
+   **FINANCIAL**: Money and accounts
+   - From banks, brokerages, financial institutions
+   - Senders: Chase, Ally, Vanguard, Fidelity, Schwab, Bank of America, Wells Fargo, Citibank, Capital One, American Express, etc.
+   - Subject contains: "statement", "bill", "payment", "balance", "deposit", "transfer", "account alert"
+
+   **FYI**: Everything else - informational, no action needed
 
 2. **Summary**: 1-2 sentences describing what the email is actually about
-   - ✅ GOOD: "Sarah is asking for feedback on the new homepage design mockups before the client meeting on Monday."
-   - ❌ BAD: "Sarah: New homepage design" (just repeating sender + subject)
+   - ✅ GOOD: "Chase alerts that your checking account balance is below $500."
+   - ✅ GOOD: "Calendar invite from Nathan for 'Magic Demo' on Dec 16 at 10 AM PST."
+   - ❌ BAD: "Chase: Account Alert" (just repeating sender + subject)
 
 3. **Action items**: Any requests, deadlines, or actions (or null)
 
@@ -105,7 +121,9 @@ Print summary:
 Processed N emails from the last {duration}:
   🔴 Urgent: X
   🟡 Needs Response: Y
-  🔵 FYI: Z
+  📅 Calendar: Z
+  💰 Financial: W
+  🔵 FYI: V
   📰 Newsletters: A
   ⚙️ Automated: B
 

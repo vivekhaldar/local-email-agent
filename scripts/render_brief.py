@@ -49,6 +49,18 @@ def organize_by_category(emails: list[dict]) -> list[dict]:
             "css_class": "needs-response",
             "emails": []
         },
+        "CALENDAR": {
+            "name": "Calendar & Events",
+            "icon": "📅",
+            "css_class": "calendar",
+            "emails": []
+        },
+        "FINANCIAL": {
+            "name": "Financial",
+            "icon": "💰",
+            "css_class": "financial",
+            "emails": []
+        },
         "FYI": {
             "name": "FYI",
             "icon": "🔵",
@@ -77,7 +89,7 @@ def organize_by_category(emails: list[dict]) -> list[dict]:
             sections["FYI"]["emails"].append(email)
 
     # Return as list, ordered
-    order = ["URGENT", "NEEDS_RESPONSE", "FYI", "AUTOMATED", "NEWSLETTER"]
+    order = ["URGENT", "NEEDS_RESPONSE", "CALENDAR", "FINANCIAL", "FYI", "AUTOMATED", "NEWSLETTER"]
     return [sections[cat] for cat in order]
 
 
