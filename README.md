@@ -1,142 +1,157 @@
-# Gmail Local Backup
+# Local Email Agent
 
-Local mirror of Gmail using [Got Your Back (GYB)](https://github.com/GAM-team/got-your-back).
+AI-powered tools for your local Gmail archive. Sync emails locally, generate smart briefs, and search with natural language.
 
-## Overview
+## TL;DR
 
-- **Email**: vh@vivekhaldar.com
-- **Local storage**: `~/MAIL/gmail/`
-- **Tool**: GYB (Gmail API-based backup)
-- **Credentials**: Stored in `pass` at `API_KEYS/gyb-gmail-client-secrets`
+```bash
+# Sync recent emails (last 3 days by default)
+./sync-gmail.sh
+
+# Generate a daily email brief (opens in browser)
+./generate-brief.sh
+
+# Search emails with natural language
+./email-search.sh "what did Sarah say about the budget?"
+./email-search.sh "find invoices from AWS" --since=1y
+```
+
+## Features
+
+### Email Briefs
+Generate a beautifully formatted HTML summary of your inbox, organized by category with AI-generated summaries.
+
+```bash
+./generate-brief.sh              # Today's emails
+./generate-brief.sh --since=7d   # Last week
+./generate-brief.sh --since=1mo  # Last month
+```
+
+Features:
+- Emails grouped into categories (Work, Finance, Travel, etc.)
+- Thread grouping (conversations shown as single items)
+- AI-generated one-line summaries
+- Direct links to open each email in Gmail
+- Collapsible sections for easy scanning
+
+### Natural Language Search
+Ask questions about your email archive and get synthesized answers with source citations.
+
+```bash
+./email-search.sh "what's the status of my insurance claim?"
+./email-search.sh "find emails about google interview"
+./email-search.sh "tax documents from last year" --since=1y
+./email-search.sh "invoices" --list-only  # Skip AI answer, just list matches
+```
+
+Features:
+- Hybrid search: fast keyword filtering + LLM semantic understanding
+- Synthesized answers citing specific emails
+- Clickable source links to Gmail
+- HTML output with anchor links to sources
+- Time filtering with human-readable durations (1d, 2w, 1mo, 1y)
+
+### Gmail Sync
+Keep a local mirror of your Gmail using [Got Your Back (GYB)](https://github.com/GAM-team/got-your-back).
+
+```bash
+./sync-gmail.sh           # Last 3 days (default)
+./sync-gmail.sh 7d        # Last week
+./sync-gmail.sh full      # Full sync of all messages
+```
 
 ## Directory Structure
 
 ```
 ~/MAIL/
-├── README.md              # This file
-├── sync-gmail.sh          # Sync script
+├── README.md                    # This file
+├── sync-gmail.sh                # Gmail sync script
+├── generate-brief.sh            # Email brief generator
+├── email-search.sh              # Natural language search
+├── scripts/
+│   ├── fetch_emails.py          # Fetch emails from SQLite
+│   ├── parse_eml.py             # Parse EML files
+│   ├── group_threads.py         # Group emails into threads
+│   ├── classify_with_claude.py  # AI classification
+│   ├── render_brief.py          # Render HTML brief
+│   └── email_search.py          # Search implementation
+├── templates/
+│   ├── brief.html               # Brief HTML template
+│   └── search-results.html      # Search results template
+├── briefs/                      # Generated briefs (gitignored)
+├── searches/                    # Generated search results (gitignored)
 └── gmail/
-    ├── msg-db.sqlite      # SQLite database with message metadata
-    └── YYYY/
-        └── MM/
-            └── DD/
-                └── XXXXX.eml  # Individual email files
+    ├── msg-db.sqlite            # SQLite database with metadata
+    └── YYYY/MM/DD/*.eml         # Email files
 ```
 
-## Running a Sync
+## Requirements
 
-```bash
-~/MAIL/sync-gmail.sh
-```
+- Python 3.11+ (via `uv`)
+- [Claude CLI](https://github.com/anthropics/claude-code) with API access
+- GYB installed at `~/bin/gyb/`
+- Gmail API credentials in `pass` at `API_KEYS/gyb-gmail-client-secrets`
 
-The script:
-1. Checks if `client_secrets.json` exists (regenerates from `pass` if missing)
-2. Runs GYB backup, downloading only new messages since last sync
+## Setup
 
-**Resumable**: If interrupted, just run again—GYB picks up where it left off.
+### 1. Google Cloud Project
 
-## Checking Progress
+1. Create project in [Google Cloud Console](https://console.cloud.google.com)
+2. Enable the **Gmail API**
+3. Create OAuth credentials (Desktop app)
+4. Download `client_secrets.json`
 
-While a sync is running, check how many messages have been backed up:
+### 2. Google Workspace (if applicable)
 
-```bash
-sqlite3 ~/MAIL/gmail/msg-db.sqlite "SELECT COUNT(*) FROM messages;"
-```
+For Workspace accounts, allow the app:
 
-## Setup Process (Reference)
-
-This documents how the backup system was originally configured.
-
-### 1. Google Cloud Project Setup
-
-1. Created project "gmail-local-backup" in [Google Cloud Console](https://console.cloud.google.com)
-2. Enabled the **Gmail API** (APIs & Services → Library → Gmail API)
-3. Created OAuth credentials:
-   - APIs & Services → Credentials → Create Credentials → OAuth client ID
-   - Application type: **Desktop app**
-   - Name: "GYB Backup"
-4. Downloaded `client_secrets.json`
-
-### 2. Google Workspace Configuration
-
-Since `vh@vivekhaldar.com` is a Google Workspace account, the app needed to be allowed:
-
-1. [Google Admin Console](https://admin.google.com) → Security → Access and data control → API controls
+1. [Google Admin Console](https://admin.google.com) → Security → API controls
 2. Manage Third-Party App Access → Add app → OAuth App Name Or Client ID
-3. Entered Client ID: `45158837944-shlat8e0s5eo7bi651132sr2ougvk50b.apps.googleusercontent.com`
-4. Set access to **Trusted**
+3. Set access to **Trusted**
 
 ### 3. GYB Installation
 
 ```bash
-# Installed via official script (upgrade-only mode to skip interactive prompts)
 bash <(curl -s -S -L https://git.io/gyb-install) -l
 ```
 
-Installs to: `~/bin/gyb/`
-
 ### 4. Credential Storage
 
-OAuth credentials stored securely in `pass`:
-
 ```bash
-# Store credentials
 cat ~/Downloads/client_secret_*.json | pass insert -m API_KEYS/gyb-gmail-client-secrets
-
-# Extract to GYB directory
-pass show API_KEYS/gyb-gmail-client-secrets > ~/bin/gyb/client_secrets.json
 ```
 
-### 5. Initial Authorization
+### 5. Initial Sync
 
-First run opens browser for Google OAuth consent. After approval, GYB caches access/refresh tokens locally.
+```bash
+./sync-gmail.sh full  # First-time full sync (may take hours for large mailboxes)
+```
 
-## Querying the Backup
-
-The SQLite database contains message metadata:
+## Querying the Database
 
 ```bash
 # Count all messages
 sqlite3 ~/MAIL/gmail/msg-db.sqlite "SELECT COUNT(*) FROM messages;"
 
-# View schema
-sqlite3 ~/MAIL/gmail/msg-db.sqlite ".schema"
-
 # Recent messages
 sqlite3 ~/MAIL/gmail/msg-db.sqlite \
   "SELECT message_num, message_subject FROM messages ORDER BY message_date DESC LIMIT 10;"
-```
 
-## Reading Email Files
-
-Individual emails are stored as `.eml` files (RFC 5322 format):
-
-```bash
-# Find an email file
-find ~/MAIL/gmail -name "*.eml" | head -1
-
-# Read with Python
-python3 -c "
-import email
-from pathlib import Path
-eml = next(Path('$HOME/MAIL/gmail').rglob('*.eml'))
-msg = email.message_from_bytes(eml.read_bytes())
-print(f'From: {msg[\"From\"]}')
-print(f'Subject: {msg[\"Subject\"]}')
-"
+# View schema
+sqlite3 ~/MAIL/gmail/msg-db.sqlite ".schema"
 ```
 
 ## Troubleshooting
 
 ### "Access blocked" error
-If OAuth fails with "institution's admin needs to review", the app needs to be allowed in Google Workspace Admin Console (see Setup step 2).
+The app needs to be allowed in Google Workspace Admin Console (see Setup step 2).
 
 ### Token expired
-GYB automatically refreshes tokens. If issues persist, delete cached tokens and re-authorize:
+GYB automatically refreshes tokens. If issues persist:
 ```bash
-rm ~/bin/gyb/*.json  # Removes cached tokens (not client_secrets)
+rm ~/bin/gyb/*.json  # Remove cached tokens
 pass show API_KEYS/gyb-gmail-client-secrets > ~/bin/gyb/client_secrets.json
-~/MAIL/sync-gmail.sh  # Re-triggers OAuth flow
+./sync-gmail.sh      # Re-triggers OAuth flow
 ```
 
 ### Upgrade GYB
@@ -144,13 +159,6 @@ pass show API_KEYS/gyb-gmail-client-secrets > ~/bin/gyb/client_secrets.json
 bash <(curl -s -S -L https://git.io/gyb-install) -l
 ```
 
-## Future: AI Agent Access
-
-The backup format is designed for programmatic access:
-- **SQLite database**: Query message metadata (dates, subjects, labels, message IDs)
-- **EML files**: Parse full message content with Python's `email` module
-- **Labels preserved**: Gmail labels are stored in the database
-
 ---
 
-*Setup completed: December 13, 2025*
+*Built with Claude Code*
