@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email Search - {{ query|truncate(50) }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #FAF9F7;
+      --bg-card: #FFFFFF;
+      --bg-hover: #F5F4F2;
+      --bg-answer: #F0FDF4;
+      --text-primary: #1C1917;
+      --text-secondary: #57534E;
+      --text-muted: #A8A29E;
+      --border: #E7E5E4;
+      --border-light: #F5F5F4;
+      --accent-search: #7C3AED;
+      --accent-search-bg: #F5F3FF;
+      --accent-answer: #059669;
+      --accent-link: #1D4ED8;
+
+      --font-display: 'Fraunces', Georgia, serif;
+      --font-body: 'DM Sans', -apple-system, sans-serif;
+
+      --shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.04);
+      --shadow-md: 0 4px 12px rgba(28, 25, 23, 0.06);
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+    }
+
+    body {
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-primary);
+      background: var(--bg-primary);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 4rem;
+    }
+
+    /* Header */
+    header {
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .eyebrow {
+      font-family: var(--font-body);
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 600;
+      line-height: 1.3;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+
+    .query-text {
+      font-style: italic;
+      color: var(--accent-search);
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    /* Answer Card */
+    .answer-card {
+      background: var(--bg-answer);
+      border: 1px solid #BBF7D0;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .answer-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+      color: var(--accent-answer);
+    }
+
+    .answer-header svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .answer-content {
+      font-size: 1rem;
+      line-height: 1.7;
+      color: var(--text-primary);
+    }
+
+    .answer-content p {
+      margin-bottom: 0.75rem;
+    }
+
+    .answer-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Sources Section */
+    .sources-header {
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .sources-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .source-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .source-card:hover {
+      box-shadow: var(--shadow-md);
+      border-color: var(--accent-search);
+    }
+
+    .source-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      background: var(--accent-search-bg);
+      color: var(--accent-search);
+      font-size: 0.75rem;
+      font-weight: 600;
+      border-radius: 50%;
+      margin-right: 0.5rem;
+    }
+
+    .source-sender {
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .source-email {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .source-subject {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      margin: 0.35rem 0;
+    }
+
+    .source-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+
+    .source-date {
+      font-weight: 500;
+    }
+
+    .source-snippet {
+      font-style: italic;
+      color: var(--text-secondary);
+      max-width: 400px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .source-link {
+      display: inline-block;
+      margin-top: 0.5rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent-link);
+      text-decoration: none;
+    }
+
+    .source-link:hover {
+      text-decoration: underline;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 3rem;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    footer::before {
+      content: "";
+      display: block;
+      width: 40px;
+      height: 1px;
+      background: var(--border);
+      margin: 0 auto 1rem;
+    }
+
+    /* Mobile */
+    @media (max-width: 640px) {
+      .container { padding: 2rem 1rem 3rem; }
+      h1 { font-size: 1.5rem; }
+      .source-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+      }
+      .source-snippet {
+        max-width: 100%;
+      }
+    }
+
+    /* Print */
+    @media print {
+      body { background: #fff; }
+      .container { padding: 1rem; }
+      .source-card { box-shadow: none; border: 1px solid #ddd; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <p class="eyebrow">Email Search</p>
+      <h1><span class="query-text">"{{ query }}"</span></h1>
+      <p class="subtitle">{{ result_count }} result{{ 's' if result_count != 1 else '' }} · {{ generated_at }}</p>
+    </header>
+
+    {% if answer %}
+    <div class="answer-card">
+      <div class="answer-header">
+        <svg viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />
+        </svg>
+        Answer
+      </div>
+      <div class="answer-content">
+        {% for paragraph in answer.split('\n\n') %}
+        <p>{{ paragraph }}</p>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="sources-header">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M3 4a2 2 0 00-2 2v1.161l8.441 4.221a1.25 1.25 0 001.118 0L19 7.162V6a2 2 0 00-2-2H3z" />
+        <path d="M19 8.839l-7.77 3.885a2.75 2.75 0 01-2.46 0L1 8.839V14a2 2 0 002 2h14a2 2 0 002-2V8.839z" />
+      </svg>
+      Sources
+    </div>
+
+    <div class="sources-list">
+      {% for result in results %}
+      <div class="source-card">
+        <div>
+          <span class="source-number">{{ loop.index }}</span>
+          <span class="source-sender">{{ result.from_name }}</span>
+          <span class="source-email">&lt;{{ result.from_email }}&gt;</span>
+        </div>
+        <div class="source-subject">{{ result.subject }}</div>
+        <div class="source-meta">
+          <span class="source-date">{{ result.date_formatted }}</span>
+          {% if result.snippet %}
+          <span class="source-snippet">"{{ result.snippet }}..."</span>
+          {% endif %}
+        </div>
+        {% if result.gmail_link %}
+        <a class="source-link" href="{{ result.gmail_link }}" target="_blank">Open in Gmail →</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if result_count == 0 %}
+    <div style="text-align: center; padding: 3rem; color: var(--text-muted);">
+      <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔍</div>
+      <p>No emails found matching your query</p>
+    </div>
+    {% endif %}
+
+    <footer>
+      Generated by local-email-agent · {{ generated_at }}
+    </footer>
+  </div>
+</body>
+</html>

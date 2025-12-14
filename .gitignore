@@ -1,6 +1,7 @@
 # Email data (large, private)
 gmail/
 briefs/
+searches/
 
 # GYB credentials and tokens
 *.json

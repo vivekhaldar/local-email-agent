@@ -9,13 +9,18 @@ import re
 import sqlite3
 import subprocess
 import sys
+import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from jinja2 import Environment, FileSystemLoader
 
 # Paths
 DB_PATH = Path.home() / "MAIL" / "gmail" / "msg-db.sqlite"
 GMAIL_DIR = Path.home() / "MAIL" / "gmail"
 GMAIL_BASE_URL = "https://mail.google.com/mail/u/0/#all"
+TEMPLATES_DIR = Path.home() / "MAIL" / "templates"
+SEARCHES_DIR = Path.home() / "MAIL" / "searches"
 
 # Limits
 MAX_CANDIDATES = 100
@@ -390,7 +395,10 @@ def print_results(query: str, results: list[dict], answer: str, list_only: bool)
         print(f"{i}. {r['from_name']} <{r['from_email']}>")
         print(f"   {r['subject']}")
         date_formatted = format_date(r['date'])
-        snippet = r['body_preview'][:80].replace('\n', ' ').strip()
+        # Strip HTML tags from snippet for cleaner CLI output
+        clean_preview = re.sub(r"<[^>]+>", " ", r['body_preview'])
+        clean_preview = re.sub(r"\s+", " ", clean_preview).strip()
+        snippet = clean_preview[:80]
         if snippet:
             print(f"   {date_formatted} · \"{snippet}...\"")
         else:
@@ -398,6 +406,55 @@ def print_results(query: str, results: list[dict], answer: str, list_only: bool)
         if r['gmail_link']:
             print(f"   → {r['gmail_link']}")
         print()
+
+
+def strip_html_tags(text: str) -> str:
+    """Remove HTML tags from text."""
+    clean = re.sub(r"<[^>]+>", " ", text)
+    clean = re.sub(r"\s+", " ", clean)
+    return clean.strip()
+
+
+def render_html_results(query: str, results: list[dict], answer: str) -> Path:
+    """Render search results to HTML file and return the path."""
+    # Ensure output directory exists
+    SEARCHES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Set up Jinja2
+    env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
+    template = env.get_template("search-results.html")
+
+    # Format results for template
+    formatted_results = []
+    for r in results:
+        # Clean snippet: strip HTML tags and normalize whitespace
+        snippet = strip_html_tags(r["body_preview"])[:80] if r["body_preview"] else ""
+        formatted_results.append({
+            "from_name": r["from_name"],
+            "from_email": r["from_email"],
+            "subject": r["subject"],
+            "date_formatted": format_date(r["date"]),
+            "snippet": snippet,
+            "gmail_link": r["gmail_link"]
+        })
+
+    # Generate HTML
+    html = template.render(
+        query=query,
+        answer=answer,
+        results=formatted_results,
+        result_count=len(results),
+        generated_at=datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    )
+
+    # Save to file with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    safe_query = re.sub(r"[^\w\s-]", "", query)[:30].strip().replace(" ", "-")
+    filename = f"search-{timestamp}-{safe_query}.html"
+    output_path = SEARCHES_DIR / filename
+
+    output_path.write_text(html)
+    return output_path
 
 
 def main():
@@ -436,6 +493,16 @@ Examples:
         type=int,
         default=MAX_RESULTS,
         help=f"Maximum number of results (default: {MAX_RESULTS})"
+    )
+    parser.add_argument(
+        "--no-html",
+        action="store_true",
+        help="Skip HTML output generation"
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Don't automatically open HTML in browser"
     )
     args = parser.parse_args()
 
@@ -502,6 +569,15 @@ Examples:
 
     # Step 5: Print results
     print_results(query, results, answer, args.list_only)
+
+    # Step 6: Generate HTML output
+    if not args.no_html:
+        print("\n📄 Generating HTML...", file=sys.stderr)
+        html_path = render_html_results(query, results, answer)
+        print(f"\n💾 HTML saved to: {html_path}")
+
+        if not args.no_open:
+            webbrowser.open(f"file://{html_path}")
 
 
 if __name__ == "__main__":
