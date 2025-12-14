@@ -26,3 +26,4 @@ htmlcov/
 *.swp
 *.swo
 *~
+classification_cache.sqlite

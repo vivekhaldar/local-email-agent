@@ -9,7 +9,7 @@ AI-powered tools for your local Gmail archive. Sync emails locally, generate sma
 ./sync-gmail.sh
 
 # Generate a daily email brief (opens in browser)
-./generate-brief.sh
+./generate-brief.sh --since 1d
 
 # Search emails with natural language
 ./email-search.sh "what did Sarah say about the budget?"
@@ -22,17 +22,10 @@ AI-powered tools for your local Gmail archive. Sync emails locally, generate sma
 Generate a beautifully formatted HTML summary of your inbox, organized by category with AI-generated summaries.
 
 ```bash
-./generate-brief.sh              # Today's emails
-./generate-brief.sh --since=7d   # Last week
-./generate-brief.sh --since=1mo  # Last month
-```
-
-For more control and visible progress, use the direct pipeline:
-
-```bash
-./generate-brief-direct.sh --since 2d                    # Last 2 days
-./generate-brief-direct.sh --since 2d --concurrency 10   # Faster with more parallelism
-./generate-brief-direct.sh --since 2d --no-cache         # Force re-classification
+./generate-brief.sh --since 1d                    # Today's emails (default)
+./generate-brief.sh --since 7d                    # Last week
+./generate-brief.sh --since 2d --concurrency 10   # Faster with more parallelism
+./generate-brief.sh --since 2d --no-cache         # Force re-classification
 ```
 
 Features:
@@ -243,7 +236,7 @@ uv run scripts/cache_manager.py stats
 uv run scripts/cache_manager.py clear
 
 # Generate brief without using cache
-./generate-brief-direct.sh --since 2d --no-cache
+./generate-brief.sh --since 2d --no-cache
 ```
 
 The cache key for threads includes all message IDs, so when a new message arrives in a thread, it will be re-classified with full context.

@@ -1,11 +1,15 @@
 #!/bin/bash
-# ABOUTME: Generate an email brief using Claude in headless mode
-# ABOUTME: Usage: ./generate-brief.sh [--since <duration>]
+# ABOUTME: Generate email brief by directly running the Python pipeline
+# ABOUTME: Faster than generate-brief.sh, shows all progress output
 
 set -e
 
-# Default: last 24 hours
+cd "$(dirname "$0")"
+
+# Defaults
 SINCE="1d"
+NO_CACHE=""
+CONCURRENCY="5"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -14,86 +18,79 @@ while [[ $# -gt 0 ]]; do
             SINCE="$2"
             shift 2
             ;;
+        --no-cache)
+            NO_CACHE="--no-cache"
+            shift
+            ;;
+        --concurrency)
+            CONCURRENCY="$2"
+            shift 2
+            ;;
         -h|--help)
-            echo "Usage: $0 [--since <duration>]"
+            echo "Usage: $0 [--since <duration>] [--no-cache] [--concurrency N]"
             echo ""
-            echo "Generate an email brief summarizing recent emails."
+            echo "Generate an email brief by running the Python pipeline directly."
+            echo "This is faster and shows more progress output than generate-brief.sh"
             echo ""
             echo "Options:"
-            echo "  --since <duration>  How far back to look (default: 1d)"
+            echo "  --since <duration>   How far back to look (default: 1d)"
+            echo "  --no-cache           Disable caching (re-classify everything)"
+            echo "  --concurrency N      Max concurrent Claude requests (default: 5)"
             echo ""
-            echo "Duration formats:"
-            echo "  1h, 12h      - hours"
-            echo "  1d, 2d, 7d   - days"
-            echo "  1w, 2w       - weeks"
-            echo "  1mo          - months"
-            echo ""
-            echo "Examples:"
-            echo "  $0                  # Last 24 hours"
-            echo "  $0 --since 2d       # Last 2 days"
-            echo "  $0 --since 1w       # Last week"
+            echo "Duration formats: 1h, 12h, 1d, 2d, 7d, 1w, 2w, 1mo"
             exit 0
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Use --help for usage information"
             exit 1
             ;;
     esac
 done
 
-# Convert duration to human-readable for display
-case $SINCE in
-    *h) SINCE_TEXT="${SINCE%h} hours" ;;
-    *d) SINCE_TEXT="${SINCE%d} days" ;;
-    *w) SINCE_TEXT="${SINCE%w} weeks" ;;
-    *mo) SINCE_TEXT="${SINCE%mo} months" ;;
-    *) SINCE_TEXT="$SINCE" ;;
-esac
+# Create temp directory for intermediate files
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
 
-echo "📬 Generating email brief for last $SINCE_TEXT..."
+echo "📬 Generating email brief for last $SINCE..."
 echo ""
 
-# Run Claude in headless mode from ~/MAIL directory
-cd "$(dirname "$0")"
+# Step 1: Fetch emails from SQLite
+echo "📥 Step 1/5: Fetching emails from database..."
+uv run scripts/fetch_emails.py --since="$SINCE" --output="$TEMP_DIR/emails_raw.json"
 
-# Simple prompt that triggers the email-brief skill
-PROMPT="Generate an email brief for the last $SINCE_TEXT. Duration code: $SINCE"
+# Check if we have emails
+EMAIL_COUNT=$(python3 -c "import json; print(len(json.load(open('$TEMP_DIR/emails_raw.json'))['emails']))")
+if [ "$EMAIL_COUNT" -eq 0 ]; then
+    echo "❌ No emails found in the last $SINCE"
+    exit 0
+fi
+echo "   Found $EMAIL_COUNT emails"
+echo ""
 
-# Run with stream-json for verbose updates, pre-approve tools
-# Parse the stream-json output to show progress
-claude -p "$PROMPT" \
-    --allowedTools "Bash,Read,Write,Edit" \
-    --verbose \
-    --output-format stream-json | while IFS= read -r line; do
-    # Extract and display relevant updates from the JSON stream
-    if echo "$line" | grep -q '"type":"assistant"'; then
-        # Extract text content from assistant messages
-        text=$(echo "$line" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    if data.get('type') == 'assistant':
-        for block in data.get('message', {}).get('content', []):
-            if block.get('type') == 'text':
-                print(block.get('text', ''), end='')
-except: pass
-" 2>/dev/null)
-        if [ -n "$text" ]; then
-            echo "$text"
-        fi
-    elif echo "$line" | grep -q '"type":"tool_use"'; then
-        # Show tool usage
-        tool=$(echo "$line" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    if data.get('type') == 'tool_use':
-        print(f\"⚙️  {data.get('name', 'tool')}...\")
-except: pass
-" 2>/dev/null)
-        if [ -n "$tool" ]; then
-            echo "$tool"
-        fi
-    fi
-done
+# Step 2: Parse EML files
+echo "📄 Step 2/5: Parsing email content..."
+uv run scripts/parse_eml.py --batch="$TEMP_DIR/emails_raw.json" --output="$TEMP_DIR/emails_parsed.json"
+echo ""
+
+# Step 3: Group into threads
+echo "🧵 Step 3/5: Grouping into threads..."
+uv run scripts/group_threads.py --input="$TEMP_DIR/emails_parsed.json" --raw="$TEMP_DIR/emails_raw.json" --output="$TEMP_DIR/emails_grouped.json"
+ITEM_COUNT=$(python3 -c "import json; print(len(json.load(open('$TEMP_DIR/emails_grouped.json'))['items']))")
+echo "   Grouped into $ITEM_COUNT items (threads + singles)"
+echo ""
+
+# Step 4: Classify with Claude (this is the slow part - shows progress)
+echo "🏷️  Step 4/5: Classifying with Claude..."
+uv run scripts/classify_with_claude.py --grouped="$TEMP_DIR/emails_grouped.json" --output="$TEMP_DIR/emails_classified.json" $NO_CACHE --concurrency="$CONCURRENCY"
+echo ""
+
+# Step 5: Render HTML
+echo "📝 Step 5/5: Rendering HTML brief..."
+OUTPUT_FILE=$(uv run scripts/render_brief.py --input="$TEMP_DIR/emails_classified.json" --since="$SINCE" --duration="$SINCE")
+echo ""
+
+echo "✅ Brief generated!"
+echo "📂 Opening: $OUTPUT_FILE"
+
+# Open in browser
+open "$OUTPUT_FILE"
